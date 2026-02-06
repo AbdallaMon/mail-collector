@@ -143,21 +143,25 @@ class GraphService {
       }
 
       if (deltaLink) {
+        // Calculate lastMessageDateTime safely
+        let lastMessageDateTime = undefined;
+        if (messages.length > 0) {
+          const validDates = messages
+            .map((m) => new Date(m.receivedDateTime))
+            .filter((d) => !isNaN(d.getTime()));
+          if (validDates.length > 0) {
+            lastMessageDateTime = new Date(
+              Math.max(...validDates.map((d) => d.getTime())),
+            );
+          }
+        }
+
         await prisma.mailSyncState.update({
           where: { accountId },
           data: {
             deltaLink,
             lastDeltaAt: new Date(),
-            lastMessageDateTime:
-              messages.length > 0
-                ? new Date(
-                    Math.max(
-                      ...messages.map((m) =>
-                        new Date(m.receivedDateTime).getTime(),
-                      ),
-                    ),
-                  )
-                : undefined,
+            ...(lastMessageDateTime && { lastMessageDateTime }),
           },
         });
       }
