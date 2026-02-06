@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Connecting Account... - Mail Collector</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📬</text></svg>"
+    />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <div class="login-container">
+      <div class="login-card" style="text-align: center">
+        <div id="loading-state">
+          <div class="spinner" style="margin: 0 auto 1.5rem"></div>
+          <h2
+            style="
+              font-size: 1.25rem;
+              font-weight: 600;
+              color: var(--gray-800);
+              margin-bottom: 0.5rem;
+            "
+          >
+            Connecting Account...
+          </h2>
+          <p class="text-gray-500">
+            Please wait while we complete the OAuth flow.
+          </p>
+        </div>
+
+        <div id="success-state" class="hidden">
+          <div
+            style="
+              width: 64px;
+              height: 64px;
+              background: #d1fae5;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin: 0 auto 1.5rem;
+            "
+          >
+            <span style="font-size: 2rem">✅</span>
+          </div>
+          <h2
+            style="
+              font-size: 1.25rem;
+              font-weight: 600;
+              color: var(--gray-800);
+              margin-bottom: 0.5rem;
+            "
+          >
+            Account Connected!
+          </h2>
+          <p id="success-email" class="text-gray-500 mb-4"></p>
+          <a href="/accounts.html" class="btn btn-primary">Go to Accounts</a>
+        </div>
+
+        <div id="error-state" class="hidden">
+          <div
+            style="
+              width: 64px;
+              height: 64px;
+              background: #fee2e2;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin: 0 auto 1.5rem;
+            "
+          >
+            <span style="font-size: 2rem">❌</span>
+          </div>
+          <h2
+            style="
+              font-size: 1.25rem;
+              font-weight: 600;
+              color: var(--gray-800);
+              margin-bottom: 0.5rem;
+            "
+          >
+            Connection Failed
+          </h2>
+          <p id="error-message" class="text-gray-500 mb-4"></p>
+          <a href="/accounts.html" class="btn btn-outline">Back to Accounts</a>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/oauth-callback.js"></script>
+  </body>
+</html>

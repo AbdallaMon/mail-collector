@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings - Mail Collector</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📬</text></svg>"
+    />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-logo">
+            <div class="sidebar-logo-icon">📬</div>
+            <span class="sidebar-logo-text">Mail Collector</span>
+          </div>
+        </div>
+        <nav class="sidebar-nav">
+          <a href="/dashboard.html" class="nav-item">
+            <svg
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              />
+            </svg>
+            Dashboard
+          </a>
+          <a href="/accounts.html" class="nav-item">
+            <svg
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              />
+            </svg>
+            Accounts
+          </a>
+          <a href="/logs.html" class="nav-item">
+            <svg
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
+            </svg>
+            Logs
+          </a>
+          <a href="/settings.html" class="nav-item active">
+            <svg
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+            </svg>
+            Settings
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          <a href="#" id="logout-btn" class="nav-item">
+            <svg
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
+            </svg>
+            Logout
+          </a>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Settings</h1>
+            <p class="page-subtitle">Manage your account and system settings</p>
+          </div>
+        </div>
+
+        <!-- Alerts -->
+        <div id="success-alert" class="alert alert-success hidden">
+          <span>✅</span>
+          <span id="success-text"></span>
+        </div>
+        <div id="error-alert" class="alert alert-error hidden">
+          <span>⚠️</span>
+          <span id="error-text"></span>
+        </div>
+
+        <div style="max-width: 600px">
+          <!-- Profile Section -->
+          <div class="card mb-6">
+            <h3 class="card-title mb-4">Profile</h3>
+            <div class="flex items-center gap-4">
+              <div
+                style="
+                  width: 64px;
+                  height: 64px;
+                  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+                  border-radius: 50%;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                "
+              >
+                <span
+                  id="user-initial"
+                  style="font-size: 1.5rem; font-weight: 700; color: #3b82f6"
+                  >A</span
+                >
+              </div>
+              <div>
+                <div
+                  id="user-name"
+                  class="font-semibold"
+                  style="font-size: 1.125rem"
+                >
+                  Admin
+                </div>
+                <div id="user-email" class="text-gray-500">
+                  admin@mail-collector.local
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Forward Email Configuration -->
+          <div class="card mb-6">
+            <h3 class="card-title mb-4">Email Forwarding Configuration</h3>
+            <form id="forward-email-form">
+              <div class="form-group">
+                <label class="form-label" for="forward-to-email"
+                  >Forward To Email</label
+                >
+                <input
+                  type="email"
+                  id="forward-to-email"
+                  class="form-input"
+                  placeholder="forward@example.com"
+                  required
+                />
+                <p class="text-sm text-gray-500 mt-1">
+                  All collected emails will be forwarded to this address
+                </p>
+              </div>
+              <div class="flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                  Save Configuration
+                </button>
+                <button
+                  type="button"
+                  id="test-forward-btn"
+                  class="btn btn-outline"
+                >
+                  Test Forward
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Change Password Section -->
+          <div class="card mb-6">
+            <h3 class="card-title mb-4">Change Password</h3>
+            <form id="password-form">
+              <div class="form-group">
+                <label class="form-label" for="current-password"
+                  >Current Password</label
+                >
+                <input
+                  type="password"
+                  id="current-password"
+                  class="form-input"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="new-password"
+                  >New Password</label
+                >
+                <input
+                  type="password"
+                  id="new-password"
+                  class="form-input"
+                  placeholder="••••••••"
+                  required
+                  minlength="6"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="confirm-password"
+                  >Confirm New Password</label
+                >
+                <input
+                  type="password"
+                  id="confirm-password"
+                  class="form-input"
+                  placeholder="••••••••"
+                  required
+                  minlength="6"
+                />
+              </div>
+              <button type="submit" class="btn btn-primary">
+                Update Password
+              </button>
+            </form>
+          </div>
+
+          <!-- System Info Section -->
+          <div class="card">
+            <h3 class="card-title mb-4">System Information</h3>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  padding: 0.75rem 0;
+                  border-bottom: 1px solid var(--gray-100);
+                "
+              >
+                <span class="text-gray-500">Version</span>
+                <span class="font-medium">1.0.0</span>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  padding: 0.75rem 0;
+                  border-bottom: 1px solid var(--gray-100);
+                "
+              >
+                <span class="text-gray-500">Forward To Email</span>
+                <span id="forward-email-display" class="font-medium"
+                  >Loading...</span
+                >
+              </div>
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  padding: 0.75rem 0;
+                  border-bottom: 1px solid var(--gray-100);
+                "
+              >
+                <span class="text-gray-500">Forward Method</span>
+                <span id="forward-method-display" class="font-medium"
+                  >Loading...</span
+                >
+              </div>
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  padding: 0.75rem 0;
+                  border-bottom: 1px solid var(--gray-100);
+                "
+              >
+                <span class="text-gray-500">Sync Interval</span>
+                <span id="sync-interval-display" class="font-medium"
+                  >Loading...</span
+                >
+              </div>
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  padding: 0.75rem 0;
+                "
+              >
+                <span class="text-gray-500">Worker Status</span>
+                <span id="worker-status" class="badge badge-success"
+                  >Checking...</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script src="/js/modal.js"></script>
+    <script src="/js/settings.js"></script>
+  </body>
+</html>

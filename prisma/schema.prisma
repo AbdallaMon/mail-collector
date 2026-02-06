@@ -1,0 +1,179 @@
+// Prisma Schema for Mail Collector Service
+// Database: MySQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================
+// ADMIN USERS (Dashboard access)
+// ===========================================
+model AdminUser {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // bcrypt hashed
+  name      String?
+  role      String   @default("admin")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admin_users")
+}
+
+// ===========================================
+// MAIL ACCOUNTS (Connected Outlook mailboxes)
+// ===========================================
+model MailAccount {
+  id                 String        @id @default(uuid())
+  email              String        @unique
+  msUserId           String?       // Microsoft Graph user ID
+  displayName        String?
+  status             AccountStatus @default(PENDING)
+  lastSyncAt         DateTime?
+  lastMessageAt      DateTime?
+  lastError          String?       @db.Text
+  errorCount         Int           @default(0)
+  forwardedCount     Int           @default(0)   // Total messages forwarded successfully
+  failedForwardCount Int           @default(0)   // Total forward failures
+  isEnabled          Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  // Relations
+  tokens     MailToken?
+  syncState  MailSyncState?
+  messages   MailMessageLog[]
+
+  @@index([status])
+  @@index([isEnabled])
+  @@map("mail_accounts")
+}
+
+enum AccountStatus {
+  PENDING       // Waiting for OAuth
+  CONNECTED     // OAuth successful, syncing
+  NEEDS_REAUTH  // Token expired/revoked
+  ERROR         // Repeated failures
+  DISABLED      // Manually disabled
+}
+
+// ===========================================
+// MAIL TOKENS (OAuth tokens - ENCRYPTED)
+// ===========================================
+model MailToken {
+  id           String   @id @default(uuid())
+  accountId    String   @unique
+  accessToken  String   @db.Text  // Encrypted
+  refreshToken String   @db.Text  // Encrypted
+  tokenType    String   @default("Bearer")
+  scope        String?  @db.Text
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  account MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("mail_tokens")
+}
+
+// ===========================================
+// MAIL SYNC STATE (Delta tracking)
+// ===========================================
+model MailSyncState {
+  id                  String    @id @default(uuid())
+  accountId           String    @unique
+  deltaLink           String?   @db.Text  // Graph delta link for incremental sync
+  lastDeltaAt         DateTime?
+  lastMessageDateTime DateTime?
+  syncCursor          String?   @db.Text  // Fallback cursor
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  account MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("mail_sync_state")
+}
+
+// ===========================================
+// MAIL MESSAGE LOG (Processed emails)
+// ===========================================
+model MailMessageLog {
+  id                String        @id @default(uuid())
+  accountId         String
+  graphMessageId    String        // Microsoft Graph message ID
+  internetMessageId String?       // RFC822 Message-ID header (for deduplication)
+  subject           String?       @db.Text
+  fromAddress       String?
+  toAddresses       String?       @db.Text  // Original recipients (comma-separated)
+  receivedDateTime  DateTime?
+  forwardedTo       String?
+  forwardStatus     ForwardStatus @default(PENDING)
+  attempts          Int           @default(0)
+  lastAttemptAt     DateTime?
+  error             String?       @db.Text
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  account MailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, graphMessageId])
+  @@unique([internetMessageId])
+  @@index([forwardStatus])
+  @@index([receivedDateTime])
+  @@map("mail_message_log")
+}
+
+enum ForwardStatus {
+  PENDING
+  FORWARDED
+  FAILED
+  SKIPPED
+}
+
+// ===========================================
+// SYSTEM LOGS (Audit trail)
+// ===========================================
+model SystemLog {
+  id        String   @id @default(uuid())
+  level     String   // info, warn, error
+  category  String   // auth, sync, forward, system
+  message   String   @db.Text
+  metadata  Json?
+  accountId String?
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([category])
+  @@index([accountId])
+  @@index([createdAt])
+  @@map("system_logs")
+}
+
+// ===========================================
+// JOB QUEUE STATE (For tracking jobs)
+// ===========================================
+model JobState {
+  id           String    @id @default(uuid())
+  accountId    String    @unique
+  jobId        String?
+  status       String    @default("idle") // idle, queued, processing, completed, failed
+  startedAt    DateTime?
+  completedAt  DateTime?
+  nextRunAt    DateTime?
+  error        String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status])
+  @@index([nextRunAt])
+  @@map("job_states")
+}
