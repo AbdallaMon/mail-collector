@@ -32,7 +32,17 @@ class SyncService {
     await this.sleep(300);
 
     // Get full message (attachments handled by Graph forward)
-    const fullMessage = await graphService.getMessage(accountId, message.id);
+    let fullMessage;
+    try {
+      fullMessage = await graphService.getMessage(accountId, message.id);
+    } catch (error) {
+      // Message was deleted before we could process it
+      if (error.response?.status === 404) {
+        console.log(`      ⊘ Message deleted, skipping`);
+        return { status: "skipped" };
+      }
+      throw error;
+    }
 
     // Forward the message via Graph API directly
     console.log(`      → Forwarding via Graph API...`);
@@ -48,14 +58,14 @@ class SyncService {
 
     console.log(`      ✓ Message forwarded successfully`);
 
-    // Increment forwarded counter on the account (no per-message log)
+    // Increment forwarded counter on the account
     await prisma.mailAccount.update({
       where: { id: accountId },
       data: { forwardedCount: { increment: 1 } },
     });
 
-    // [COMMENTED OUT] Per-message success logging — replaced by counter
-    // await forwarderService.logForward(accountId, fullMessage, "FORWARDED");
+    // Log successful forward to DB (for dedup tracking)
+    await forwarderService.logForward(accountId, fullMessage, "FORWARDED");
 
     return { status: "forwarded", subject };
   }
@@ -110,17 +120,15 @@ class SyncService {
       }
 
       // Bulk load already forwarded message IDs for this account
-      // [COMMENTED OUT] No longer logging per-message success, skip dedup check
-      // const forwardedLogs = await prisma.mailMessageLog.findMany({
-      //   where: {
-      //     accountId,
-      //     graphMessageId: { in: messages.map((m) => m.id) },
-      //     forwardStatus: "FORWARDED",
-      //   },
-      //   select: { graphMessageId: true },
-      // });
-      // const forwardedIds = new Set(forwardedLogs.map((l) => l.graphMessageId));
-      const forwardedIds = new Set(); // Empty set — no dedup needed since delta handles it
+      const forwardedLogs = await prisma.mailMessageLog.findMany({
+        where: {
+          accountId,
+          graphMessageId: { in: messages.map((m) => m.id) },
+          forwardStatus: "FORWARDED",
+        },
+        select: { graphMessageId: true },
+      });
+      const forwardedIds = new Set(forwardedLogs.map((l) => l.graphMessageId));
 
       // Process messages sequentially to respect rate limits
       // Each message has built-in delays for API calls and forwarding

@@ -64,7 +64,7 @@ class GraphService {
 
     let deltaLink = null;
     let skippedCount = 0;
-    let nextLink = `/me/mailFolders('Inbox')/messages/delta?$select=id&$top=50`;
+    let nextLink = `/me/mailFolders('Inbox')/messages/delta?$select=id,subject,from,receivedDateTime&$top=50`;
 
     // Page through ALL existing messages WITHOUT collecting them
     // We only want the deltaLink so future syncs pick up NEW messages only
