@@ -279,7 +279,8 @@ router.post(
       throw ApiError.notFound("Account not found");
     }
 
-    if (account.status !== "CONNECTED") {
+    // Allow CONNECTED and ERROR status (ERROR accounts can try again)
+    if (account.status !== "CONNECTED" && account.status !== "ERROR") {
       throw ApiError.badRequest(
         `Cannot sync account with status: ${account.status}`,
       );

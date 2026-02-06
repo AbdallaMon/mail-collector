@@ -105,7 +105,7 @@ syncQueue.on("stalled", (job) => {
 const scheduleAllSyncs = async () => {
   try {
     const accounts = await prisma.mailAccount.findMany({
-      where: { status: "CONNECTED", isEnabled: true },
+      where: { status: { in: ["CONNECTED", "ERROR"] }, isEnabled: true },
       select: { id: true, email: true },
     });
 

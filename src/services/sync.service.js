@@ -74,7 +74,8 @@ class SyncService {
       throw new Error(`Account not found: ${accountId}`);
     }
 
-    if (account.status !== "CONNECTED") {
+    // Allow CONNECTED and ERROR status (ERROR accounts can try again)
+    if (account.status !== "CONNECTED" && account.status !== "ERROR") {
       return { skipped: true, reason: account.status };
     }
 
@@ -98,7 +99,12 @@ class SyncService {
         // No messages, just update sync time
         await prisma.mailAccount.update({
           where: { id: accountId },
-          data: { lastSyncAt: new Date(), lastError: null, errorCount: 0 },
+          data: {
+            lastSyncAt: new Date(),
+            lastError: null,
+            errorCount: 0,
+            status: "CONNECTED", // Reset to CONNECTED after successful sync
+          },
         });
         return result;
       }
@@ -180,6 +186,7 @@ class SyncService {
           ...(lastMessageAt && { lastMessageAt }),
           lastError: null,
           errorCount: 0,
+          status: "CONNECTED", // Reset to CONNECTED after successful sync
         },
       });
 
@@ -237,7 +244,7 @@ class SyncService {
   async syncAllMailboxes() {
     const accounts = await prisma.mailAccount.findMany({
       where: {
-        status: "CONNECTED",
+        status: { in: ["CONNECTED", "ERROR"] },
         isEnabled: true,
       },
       select: { id: true, email: true },
