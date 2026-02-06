@@ -17,7 +17,6 @@ dist/
 *.swo
 
 # Prisma
-prisma/migrations/
 
 # Debug
 npm-debug.log*
