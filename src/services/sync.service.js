@@ -160,15 +160,24 @@ class SyncService {
       }
 
       // Update account sync time
+      // Calculate lastMessageAt safely (avoid invalid dates)
+      let lastMessageAt = undefined;
+      if (messages.length > 0) {
+        const validDates = messages
+          .map((m) => new Date(m.receivedDateTime))
+          .filter((d) => !isNaN(d.getTime()));
+        if (validDates.length > 0) {
+          lastMessageAt = new Date(
+            Math.max(...validDates.map((d) => d.getTime())),
+          );
+        }
+      }
+
       await prisma.mailAccount.update({
         where: { id: accountId },
         data: {
           lastSyncAt: new Date(),
-          lastMessageAt: new Date(
-            Math.max(
-              ...messages.map((m) => new Date(m.receivedDateTime).getTime()),
-            ),
-          ),
+          ...(lastMessageAt && { lastMessageAt }),
           lastError: null,
           errorCount: 0,
         },
@@ -178,33 +187,47 @@ class SyncService {
     } catch (error) {
       console.error(`[${account.email}] Sync error:`, error.message);
 
-      // Update error status
-      const newErrorCount = account.errorCount + 1;
-      const needsReauth = error.message.includes("Token refresh failed");
+      // Check if this is an auth error
+      const needsReauth =
+        error.message.includes("Token refresh failed") ||
+        error.message.includes("InvalidAuthenticationToken") ||
+        error.message.includes("token") ||
+        error.response?.status === 401;
 
+      const newErrorCount = account.errorCount + 1;
+
+      // Update account status
       await prisma.mailAccount.update({
         where: { id: accountId },
         data: {
           lastError: error.message,
           errorCount: newErrorCount,
-          status: needsReauth
-            ? "NEEDS_REAUTH"
-            : newErrorCount >= 5
-              ? "ERROR"
-              : account.status,
+          status: needsReauth ? "NEEDS_REAUTH" : account.status,
         },
       });
 
-      // Send re-auth notification email if token failed
+      // Send appropriate notification
       if (needsReauth) {
+        // For auth errors: send reauth notification
         await forwarderService.sendReauthNotification(
           account.email,
           accountId,
           error.message,
         );
+      } else {
+        // For other errors: send error notification (only once per 5 errors to avoid spam)
+        if (newErrorCount === 1 || newErrorCount % 5 === 0) {
+          await forwarderService.sendErrorNotification(
+            account.email,
+            accountId,
+            error.message,
+          );
+        }
       }
 
-      throw error;
+      // Return error result instead of throwing (don't stop other accounts)
+      result.errors.push({ error: error.message });
+      return result;
     }
   }
 

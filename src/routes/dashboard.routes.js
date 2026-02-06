@@ -190,17 +190,25 @@ router.get(
 
 /**
  * @route   GET /api/dashboard/config
- * @desc    Get system configuration (safe values only)
+ * @desc    Get system configuration (from database)
  */
 router.get(
   "/config",
   asyncHandler(async (req, res) => {
     const config = require("../config");
 
+    // Get forward email from database
+    const forwardToSetting = await prisma.systemSetting.findUnique({
+      where: { key: "forwardToEmail" },
+    });
+
     res.json({
       success: true,
       data: {
-        forwardTo: config.forwarding.toEmail || "Not configured",
+        forwardTo:
+          forwardToSetting?.value ||
+          config.forwarding.toEmail ||
+          "Not configured",
         syncInterval: config.worker.pollIntervalMs / 1000, // Convert to seconds
         forwardMethod: "Graph API (Direct Forward)",
       },
@@ -210,13 +218,11 @@ router.get(
 
 /**
  * @route   POST /api/dashboard/config
- * @desc    Update system configuration (writes to .env file)
+ * @desc    Update system configuration (saves to database)
  */
 router.post(
   "/config",
   asyncHandler(async (req, res) => {
-    const fs = require("fs");
-    const path = require("path");
     const { forwardToEmail } = req.body;
 
     if (!forwardToEmail) {
@@ -235,38 +241,16 @@ router.post(
       });
     }
 
-    // Read .env file
-    const envPath = path.join(process.cwd(), ".env");
-    let envContent = "";
-
-    try {
-      envContent = fs.readFileSync(envPath, "utf-8");
-    } catch (error) {
-      // If .env doesn't exist, create with just this value
-      envContent = "";
-    }
-
-    // Update or add FORWARD_TO_EMAIL
-    const lines = envContent.split("\n");
-    let found = false;
-    const updatedLines = lines.map((line) => {
-      if (line.startsWith("FORWARD_TO_EMAIL=")) {
-        found = true;
-        return `FORWARD_TO_EMAIL=${forwardToEmail}`;
-      }
-      return line;
+    // Save to database
+    await prisma.systemSetting.upsert({
+      where: { key: "forwardToEmail" },
+      create: { key: "forwardToEmail", value: forwardToEmail },
+      update: { value: forwardToEmail },
     });
 
-    if (!found) {
-      updatedLines.push(`FORWARD_TO_EMAIL=${forwardToEmail}`);
-    }
-
-    // Write back to .env file
-    fs.writeFileSync(envPath, updatedLines.join("\n"));
-
-    // Update runtime config
-    const config = require("../config");
-    config.forwarding.toEmail = forwardToEmail;
+    // Clear forwarder cache so it picks up the new value
+    const forwarderService = require("../services/forwarder.service");
+    forwarderService.clearForwardToCache();
 
     // Log the change
     await prisma.systemLog.create({
