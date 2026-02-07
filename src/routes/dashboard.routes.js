@@ -82,7 +82,6 @@ router.get(
         take: parseInt(limit),
       }),
       prisma.mailMessageLog.findMany({
-        where: { forwardStatus: "FAILED" },
         orderBy: { createdAt: "desc" },
         take: parseInt(limit),
         include: {

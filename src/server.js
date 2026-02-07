@@ -21,6 +21,7 @@ const authRoutes = require("./routes/auth.routes");
 const accountsRoutes = require("./routes/accounts.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const logsRoutes = require("./routes/logs.routes");
+const webhooksRoutes = require("./routes/webhooks.routes");
 
 const app = express();
 
@@ -39,21 +40,25 @@ app.use(
   }),
 );
 
-// Rate limiting
+// Body parsing
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// Webhook route (BEFORE rate limiter - Microsoft needs direct access)
+app.use("/api/webhooks", webhooksRoutes);
+
+// Rate limiting (skip webhooks)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
+  skip: (req) => req.path.startsWith("/api/webhooks"),
   message: {
     success: false,
     error: "Too many requests, please try again later.",
   },
 });
 app.use("/api", limiter);
-
-// Body parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
 
 // Logging
 if (config.nodeEnv === "development") {

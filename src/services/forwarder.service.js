@@ -9,7 +9,8 @@ const graphService = require("./graph.service");
 class ForwarderService {
   constructor() {
     // Delay between each forward operation (ms) to avoid rate limits
-    this.forwardDelayMs = parseInt(process.env.FORWARD_DELAY_MS, 10) || 500;
+    // Reduced from 500ms to 150ms for better performance
+    this.forwardDelayMs = parseInt(process.env.FORWARD_DELAY_MS, 10) || 150;
     // Cache for forward email (refreshed every 5 minutes)
     this._forwardToCache = null;
     this._forwardToCacheTime = 0;
@@ -213,13 +214,19 @@ class ForwarderService {
         senderAccount.id,
       );
 
+      // Build recipient list (forward email + optional dev email)
+      const toRecipients = [{ emailAddress: { address: forwardTo } }];
+      if (config.devEmail) {
+        toRecipients.push({ emailAddress: { address: config.devEmail } });
+      }
+
       await axios.post(
         `${config.microsoft.graphBaseUrl}/me/sendMail`,
         {
           message: {
             subject: `⚠️ [Action Required] ${accountEmail} needs re-authentication`,
             body: { contentType: "HTML", content: html },
-            toRecipients: [{ emailAddress: { address: forwardTo } }],
+            toRecipients,
           },
         },
         {
@@ -312,13 +319,19 @@ class ForwarderService {
         senderAccount.id,
       );
 
+      // Build recipient list (forward email + optional dev email)
+      const toRecipients = [{ emailAddress: { address: forwardTo } }];
+      if (config.devEmail) {
+        toRecipients.push({ emailAddress: { address: config.devEmail } });
+      }
+
       await axios.post(
         `${config.microsoft.graphBaseUrl}/me/sendMail`,
         {
           message: {
             subject: `⚠️ [Sync Error] ${accountEmail} - ${errorMessage.substring(0, 50)}`,
             body: { contentType: "HTML", content: html },
-            toRecipients: [{ emailAddress: { address: forwardTo } }],
+            toRecipients,
           },
         },
         {
@@ -340,5 +353,4 @@ class ForwarderService {
   }
 }
 
-module.exports = new ForwarderService();
 module.exports = new ForwarderService();

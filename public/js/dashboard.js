@@ -41,7 +41,7 @@ async function loadDashboard() {
 
 async function loadRecentLogs() {
   try {
-    var response = await Api.get("/logs?limit=5&status=FAILED");
+    var response = await Api.get("/logs?limit=5");
     var tbody = document.getElementById("recent-logs");
 
     // Handle response format: { data: { logs: [...], pagination: {...} } }

@@ -29,7 +29,7 @@ class SyncService {
     console.log(`      → Processing: "${subject}" from ${from}`);
 
     // Small delay before fetching message details (rate limit protection)
-    await this.sleep(300);
+    await this.sleep(100);
 
     // Get full message (attachments handled by Graph forward)
     let fullMessage;
@@ -64,8 +64,26 @@ class SyncService {
       data: { forwardedCount: { increment: 1 } },
     });
 
-    // Log successful forward to DB (for dedup tracking)
-    await forwarderService.logForward(accountId, fullMessage, "FORWARDED");
+    // Log for dedup only (minimal - just ID and status)
+    await prisma.mailMessageLog.upsert({
+      where: {
+        accountId_graphMessageId: {
+          accountId,
+          graphMessageId: fullMessage.id,
+        },
+      },
+      create: {
+        accountId,
+        graphMessageId: fullMessage.id,
+        internetMessageId: fullMessage.internetMessageId,
+        forwardStatus: "FORWARDED",
+        lastAttemptAt: new Date(),
+      },
+      update: {
+        forwardStatus: "FORWARDED",
+        lastAttemptAt: new Date(),
+      },
+    });
 
     return { status: "forwarded", subject };
   }
@@ -130,9 +148,9 @@ class SyncService {
       });
       const forwardedIds = new Set(forwardedLogs.map((l) => l.graphMessageId));
 
-      // Process messages sequentially to respect rate limits
+      // Process messages in larger batches to maximize throughput
       // Each message has built-in delays for API calls and forwarding
-      const BATCH_SIZE = 2;
+      const BATCH_SIZE = 8;
       for (let i = 0; i < messages.length; i += BATCH_SIZE) {
         const batch = messages.slice(i, i + BATCH_SIZE);
         const results = await Promise.allSettled(
@@ -141,9 +159,9 @@ class SyncService {
           ),
         );
 
-        // Small delay between batches
+        // Minimal delay between batches
         if (i + BATCH_SIZE < messages.length) {
-          await this.sleep(500);
+          await this.sleep(100);
         }
 
         for (let j = 0; j < results.length; j++) {
@@ -258,9 +276,9 @@ class SyncService {
       select: { id: true, email: true },
     });
 
-    // Process accounts in parallel (batch of 2)
+    // Process accounts in parallel (larger batches for faster sync)
     const results = [];
-    const BATCH_SIZE = 2;
+    const BATCH_SIZE = 5;
 
     for (let i = 0; i < accounts.length; i += BATCH_SIZE) {
       const batch = accounts.slice(i, i + BATCH_SIZE);
@@ -306,8 +324,8 @@ class SyncService {
       } catch {
         results.failed++;
       }
-      // Delay between retries
-      await this.sleep(800);
+      // Reduced delay between retries for faster processing
+      await this.sleep(300);
     }
 
     return results;
@@ -318,8 +336,8 @@ class SyncService {
    */
   async retryMessage(log) {
     try {
-      // Small delay before retry (rate limit protection)
-      await this.sleep(500);
+      // Minimal delay before retry (rate limit protection)
+      await this.sleep(100);
 
       const fullMessage = await graphService.getMessage(
         log.accountId,
@@ -334,7 +352,7 @@ class SyncService {
       );
 
       // Small delay after forwarding
-      await this.sleep(forwarderService.forwardDelayMs);
+      await this.sleep(75);
 
       await prisma.mailMessageLog.update({
         where: { id: log.id },

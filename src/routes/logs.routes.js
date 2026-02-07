@@ -18,11 +18,8 @@ router.get(
 
     const where = {};
 
-    // Default to FAILED status if no status filter specified (only errors are logged now)
     if (status) {
       where.forwardStatus = status;
-    } else {
-      where.forwardStatus = "FAILED";
     }
     if (accountId) where.accountId = accountId;
 

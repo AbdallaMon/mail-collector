@@ -7,6 +7,14 @@ module.exports = {
   apiUrl: process.env.API_URL || "http://localhost:5000",
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:3000",
 
+  // Webhook
+  webhook: {
+    url: process.env.WEBHOOK_URL || process.env.API_URL + "/api/webhooks/mail",
+  },
+
+  // Developer Email (for error notifications)
+  devEmail: process.env.DEV_EMAIL || null,
+
   // JWT
   jwt: {
     secret: process.env.JWT_SECRET || "default-secret-change-me",
@@ -55,7 +63,7 @@ module.exports = {
 
   // Worker
   worker: {
-    pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS, 10) || 30000,
+    pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS, 10) || 10000,
     concurrency: parseInt(process.env.WORKER_CONCURRENCY, 10) || 5,
     maxRetries: parseInt(process.env.MAX_RETRIES, 10) || 5,
     retryDelayMs: parseInt(process.env.RETRY_DELAY_MS, 10) || 5000,

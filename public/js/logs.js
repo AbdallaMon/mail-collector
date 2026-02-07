@@ -39,11 +39,6 @@ async function loadLogs() {
     // Both message and system logs use the same endpoint now
     var endpoint = "/logs?page=" + currentPage + "&limit=" + pageSize;
 
-    // Message logs: show only errors (FAILED). System logs: use system endpoint.
-    if (logType === "errors") {
-      endpoint += "&status=FAILED";
-    }
-
     var response = await Api.get(endpoint);
 
     // Handle response format: { data: { logs: [...], pagination: {...} } }
@@ -51,7 +46,7 @@ async function loadLogs() {
     var pagination = response.data?.pagination || { total: logs.length };
 
     // Update table header based on log type
-    if (logType === "errors") {
+    if (logType === "messages") {
       tableHeader.innerHTML =
         "<tr>" +
         "<th>Time</th>" +
@@ -71,7 +66,7 @@ async function loadLogs() {
     }
 
     if (response.success && logs.length > 0) {
-      if (logType === "errors") {
+      if (logType === "messages") {
         tbody.innerHTML = logs
           .map(function (log) {
             var status = log.forwardStatus || log.status;
@@ -147,7 +142,7 @@ async function loadLogs() {
       document.getElementById("next-btn").disabled =
         currentPage >= (pagination.totalPages || 1);
     } else {
-      var cols = logType === "errors" ? 5 : 4;
+      var cols = logType === "messages" ? 5 : 4;
       tbody.innerHTML =
         "<tr>" +
         '<td colspan="' +

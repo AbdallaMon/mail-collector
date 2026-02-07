@@ -3,20 +3,29 @@ require("dotenv").config();
 const Bull = require("bull");
 const config = require("./config");
 const prisma = require("./config/database");
-const syncService = require("./services/sync.service");
+// const syncService = require("./services/sync.service"); // DISABLED: Using webhooks instead
+const webhookService = require("./services/webhook.service");
 
 /**
- * Mail Collector Worker with Redis Queue
- * - Prevents duplicate processing (unique jobs per accountId)
- * - Automatic retry with exponential backoff
- * - Proper queue management
+ * Mail Collector Worker - Webhooks Only Mode
+ *
+ * PRIMARY: Webhooks for real-time notifications (instant)
+ * FALLBACK: DISABLED (commented out to avoid conflicts)
+ *
+ * - Automatic webhook subscription renewal (every hour)
  */
 
 const timestamp = () => new Date().toLocaleTimeString();
 const log = (msg) => console.log(`[${timestamp()}] ${msg}`);
 const logError = (msg) => console.error(`[${timestamp()}] ✗ ${msg}`);
 
-// Create Bull queue
+// DISABLED: Fallback polling (using webhooks only)
+// const FALLBACK_POLL_INTERVAL_MS = 60000; // 60 seconds
+
+// Webhook renewal interval (every hour)
+const WEBHOOK_RENEWAL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+// Create Bull queue (still needed for potential future use)
 const syncQueue = new Bull("mail-sync", {
   redis: {
     host: config.redis.host,
@@ -34,9 +43,11 @@ const syncQueue = new Bull("mail-sync", {
   },
 });
 
-/**
- * Process sync jobs from queue
- */
+/*
+// ============================================================
+// DISABLED: Old polling-based sync (using webhooks instead)
+// ============================================================
+
 syncQueue.process("sync-mailbox", config.worker.concurrency, async (job) => {
   const { accountId, email } = job.data;
 
@@ -68,9 +79,6 @@ syncQueue.process("sync-mailbox", config.worker.concurrency, async (job) => {
   }
 });
 
-/**
- * Process retry failed messages
- */
 syncQueue.process("retry-failed", 1, async (job) => {
   const result = await syncService.retryFailedMessages();
 
@@ -85,23 +93,6 @@ syncQueue.process("retry-failed", 1, async (job) => {
   return result;
 });
 
-/**
- * Queue event listeners
- */
-syncQueue.on("failed", (job, error) => {
-  logError(
-    `Job failed: ${job.name} - ${error.message} (attempt ${job.attemptsMade}/${job.opts.attempts})`,
-  );
-});
-
-syncQueue.on("stalled", (job) => {
-  log(`⚠ Job stalled: ${job.name}`);
-});
-
-/**
- * Schedule sync jobs for all connected accounts
- * Only adds job if no existing job for that accountId is waiting/active
- */
 const scheduleAllSyncs = async () => {
   try {
     const accounts = await prisma.mailAccount.findMany({
@@ -116,7 +107,6 @@ const scheduleAllSyncs = async () => {
 
     log(`\n=== Sync cycle (${accounts.length} account(s)) ===\n`);
 
-    // Get waiting/active jobs to avoid duplicates
     const existingJobs = await syncQueue.getJobs([
       "waiting",
       "active",
@@ -132,7 +122,6 @@ const scheduleAllSyncs = async () => {
     let skipped = 0;
 
     for (const account of accounts) {
-      // Skip if already in queue
       if (pendingAccountIds.has(account.id)) {
         skipped++;
         continue;
@@ -153,7 +142,6 @@ const scheduleAllSyncs = async () => {
       log(`Skipped ${skipped} (already queued)`);
     }
 
-    // Schedule retry job (only if not already queued)
     const hasRetryJob = existingJobs.some((job) => job.name === "retry-failed");
     if (!hasRetryJob) {
       await syncQueue.add("retry-failed", {}, { jobId: `retry-${Date.now()}` });
@@ -163,8 +151,38 @@ const scheduleAllSyncs = async () => {
   }
 };
 
+// END DISABLED SECTION
+*/
+
 /**
- * Start the worker
+ * Renew expiring webhook subscriptions
+ */
+const renewWebhookSubscriptions = async () => {
+  try {
+    log("\n=== Webhook subscription maintenance ===\n");
+
+    // First, create subscriptions for accounts that don't have one
+    const createResult = await webhookService.createMissingSubscriptions();
+    if (createResult.created > 0 || createResult.failed > 0) {
+      log(`Created: ${createResult.created}, Failed: ${createResult.failed}`);
+    }
+
+    // Then, renew expiring subscriptions
+    const renewResult = await webhookService.renewExpiringSubscriptions();
+    if (renewResult.renewed > 0 || renewResult.failed > 0) {
+      log(`Renewed: ${renewResult.renewed}, Failed: ${renewResult.failed}`);
+    }
+
+    if (createResult.created === 0 && renewResult.renewed === 0) {
+      log("All subscriptions are up to date");
+    }
+  } catch (error) {
+    logError(`Webhook maintenance failed: ${error.message}`);
+  }
+};
+
+/**
+ * Start the worker (Webhooks only mode)
  */
 const startWorker = async () => {
   try {
@@ -175,16 +193,24 @@ const startWorker = async () => {
     await syncQueue.isReady();
     log("Redis connected");
 
-    const secs = Math.round(config.worker.pollIntervalMs / 1000);
-    console.log(`\n🚀 Worker started`);
-    console.log(`   Schedule: every ${secs} seconds`);
-    console.log(`   Concurrency: ${config.worker.concurrency} jobs\n`);
+    console.log(`\n🚀 Worker started (Webhooks Only Mode)`);
+    console.log(`   Mode: Real-time webhooks`);
+    console.log(
+      `   Webhook renewal: every ${WEBHOOK_RENEWAL_INTERVAL_MS / 1000 / 60} minutes`,
+    );
+    console.log(`   Fallback polling: DISABLED\n`);
 
-    // Initial sync
-    await scheduleAllSyncs();
+    // Initial webhook subscription setup
+    await renewWebhookSubscriptions();
 
-    // Schedule recurring syncs
-    setInterval(scheduleAllSyncs, config.worker.pollIntervalMs);
+    // DISABLED: Initial fallback sync
+    // await scheduleAllSyncs();
+
+    // DISABLED: Schedule recurring fallback syncs
+    // setInterval(scheduleAllSyncs, FALLBACK_POLL_INTERVAL_MS);
+
+    // Schedule webhook subscription renewal (every hour)
+    setInterval(renewWebhookSubscriptions, WEBHOOK_RENEWAL_INTERVAL_MS);
   } catch (error) {
     logError(`Failed to start worker: ${error.message}`);
     console.log("\n⚠ Make sure Redis is running!");

@@ -4,6 +4,15 @@ const config = require("../config");
 const encryption = require("../utils/encryption");
 const prisma = require("../config/database");
 
+// Lazy load to avoid circular dependency
+let webhookService = null;
+const getWebhookService = () => {
+  if (!webhookService) {
+    webhookService = require("./webhook.service");
+  }
+  return webhookService;
+};
+
 /**
  * Microsoft OAuth 2.0 Service
  */
@@ -212,6 +221,18 @@ class MicrosoftAuthService {
       create: { accountId: account.id },
       update: {},
     });
+
+    // Create webhook subscription for real-time notifications
+    try {
+      await getWebhookService().createSubscription(account.id);
+      console.log(`[OAuth] Webhook subscription created for ${email}`);
+    } catch (webhookError) {
+      // Log but don't fail the OAuth flow
+      console.error(
+        `[OAuth] Failed to create webhook subscription for ${email}:`,
+        webhookError.message,
+      );
+    }
 
     return account;
   }

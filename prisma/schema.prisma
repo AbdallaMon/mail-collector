@@ -190,3 +190,22 @@ model SystemSetting {
 
   @@map("system_settings")
 }
+
+// ===========================================
+// WEBHOOK SUBSCRIPTIONS (Microsoft Graph Webhooks)
+// ===========================================
+model WebhookSubscription {
+  id               String   @id @default(uuid())
+  accountId        String   @unique
+  subscriptionId   String   @unique  // Microsoft subscription ID
+  resource         String             // e.g., /me/mailFolders('Inbox')/messages
+  changeType       String             // created, updated, deleted
+  notificationUrl  String
+  expiresAt        DateTime
+  clientState      String             // Secret for validation
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@map("webhook_subscriptions")
+}
