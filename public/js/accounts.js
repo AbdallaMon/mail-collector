@@ -12,9 +12,9 @@ document.addEventListener("DOMContentLoaded", function () {
     logout();
   });
 
-  document
-    .getElementById("sync-all-btn")
-    .addEventListener("click", syncAllAccounts);
+  // document
+  //   .getElementById("sync-all-btn")
+  //   .addEventListener("click", syncAllAccounts);
   document
     .getElementById("connect-account-btn")
     .addEventListener("click", connectAccount);
@@ -93,11 +93,11 @@ async function loadAccounts() {
             "</td>" +
             "<td>" +
             '<div class="actions" style="justify-content: flex-end;">' +
-            '<button class="btn btn-outline btn-sm sync-btn" data-id="' +
-            account.id +
-            '" data-email="' +
-            account.email +
-            '" title="Sync now">🔄</button>' +
+            // '<button class="btn btn-outline btn-sm sync-btn" data-id="' +
+            // account.id +
+            // '" data-email="' +
+            // account.email +
+            // '" title="Sync now">🔄</button>' +
             '<button class="btn btn-danger btn-sm delete-btn" data-id="' +
             account.id +
             '" data-email="' +
@@ -137,11 +137,11 @@ async function loadAccounts() {
 
 function setupAccountEventListeners() {
   // Sync buttons
-  document.querySelectorAll(".sync-btn").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      syncAccount(this.dataset.id, this.dataset.email);
-    });
-  });
+  // document.querySelectorAll(".sync-btn").forEach(function (btn) {
+  //   btn.addEventListener("click", function () {
+  //     syncAccount(this.dataset.id, this.dataset.email);
+  //   });
+  // });
 
   // Delete buttons
   document.querySelectorAll(".delete-btn").forEach(function (btn) {
