@@ -141,8 +141,11 @@ const startWorker = async () => {
     // Run once immediately
     await syncQueue.add(
       "webhook:plan-maintenance",
-      {},
-      { jobId: "webhook:plan-maintenance:now", delay: PLAN_DELAY_MS },
+      { reason: "startup" },
+      {
+        jobId: `webhook:plan-maintenance:now:${Date.now()}`,
+        delay: PLAN_DELAY_MS,
+      },
     );
 
     // Repeat every hour (jobId ثابت يمنع duplicates بعد restart)
