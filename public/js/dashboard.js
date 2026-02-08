@@ -22,6 +22,7 @@ document.addEventListener("DOMContentLoaded", function () {
 async function loadDashboard() {
   try {
     var response = await Api.get("/dashboard/stats");
+    console.log("Dashboard stats:", response.data, "data");
     if (response.success) {
       var accounts = response.data.accounts || {};
       var messages = response.data.messages || {};
