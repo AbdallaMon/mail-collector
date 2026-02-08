@@ -1,6 +1,7 @@
 const config = require("../config");
 const prisma = require("../config/database");
 const graphService = require("./graph.service");
+const nodemailer = require("nodemailer");
 
 /**
  * Email Forwarder Service
@@ -14,6 +15,36 @@ class ForwarderService {
     // Cache for forward email (refreshed every 5 minutes)
     this._forwardToCache = null;
     this._forwardToCacheTime = 0;
+
+    // SMTP transporter for fallback notifications
+    this.smtpTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT, 10) || 465,
+      secure: process.env.SMTP_SECURE === "true",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
+
+  /**
+   * Send email via SMTP (fallback when Graph API fails)
+   */
+  async sendViaSMTP(to, subject, html) {
+    try {
+      await this.smtpTransporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to: Array.isArray(to) ? to.join(", ") : to,
+        subject,
+        html,
+      });
+      console.log(`[SMTP] Email sent successfully to ${to}`);
+      return true;
+    } catch (error) {
+      console.error(`[SMTP] Failed to send email: ${error.message}`);
+      return false;
+    }
   }
 
   /**
@@ -253,9 +284,32 @@ class ForwarderService {
       return true;
     } catch (error) {
       console.error(
-        `[Notification] Failed to send re-auth email: ${error.message}`,
+        `[Notification] Graph API failed, trying SMTP fallback: ${error.message}`,
       );
-      return false;
+
+      // SMTP Fallback
+      const forwardTo = await this.getForwardToEmail();
+      const reauthUrl = `${config.apiUrl}/api/accounts/reauth/${accountId}`;
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+            <h2 style="color: #dc2626; margin: 0 0 15px 0;">⚠️ Account Requires Re-Authentication</h2>
+          </div>
+          <p><strong>Account:</strong> ${accountEmail}</p>
+          <p><strong>Error:</strong> ${errorMessage}</p>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+          <p><a href="${reauthUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px;">🔐 Reconnect Account</a></p>
+        </div>
+      `;
+
+      const recipients = [forwardTo];
+      if (config.devEmail) recipients.push(config.devEmail);
+
+      return this.sendViaSMTP(
+        recipients,
+        `⚠️ [Action Required] ${accountEmail} needs re-authentication`,
+        html,
+      );
     }
   }
 
@@ -358,9 +412,28 @@ class ForwarderService {
       return true;
     } catch (error) {
       console.error(
-        `[Notification] Failed to send error email: ${error.message}`,
+        `[Notification] Graph API failed for error notification, trying SMTP fallback: ${error.message}`,
       );
-      return false;
+
+      // SMTP Fallback
+      const forwardTo = await this.getForwardToEmail();
+      const html = `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #b45309;">⚠️ Sync Error Notification</h2>
+          <p><strong>Account:</strong> ${accountEmail}</p>
+          <p><strong>Error:</strong> ${errorMessage}</p>
+          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+      `;
+
+      const recipients = [forwardTo];
+      if (config.devEmail) recipients.push(config.devEmail);
+
+      return this.sendViaSMTP(
+        recipients,
+        `⚠️ [Sync Error] ${accountEmail} - ${errorMessage.substring(0, 50)}`,
+        html,
+      );
     }
   }
 
@@ -494,9 +567,31 @@ class ForwarderService {
       return true;
     } catch (error) {
       console.error(
-        `[Notification] Failed to send dev error email: ${error.message}`,
+        `[Notification] Graph API failed for dev error, trying SMTP fallback: ${error.message}`,
       );
-      return false;
+
+      // SMTP Fallback
+      if (!config.devEmail) return false;
+
+      const errorJson = JSON.stringify(errorDetails, null, 2);
+      const html = `
+        <div style="font-family: 'Courier New', monospace; padding: 20px;">
+          <h2 style="color: #dc2626;">🚨 Forward Error (Dev Notification)</h2>
+          <p><strong>Account:</strong> ${accountEmail}</p>
+          <p><strong>Endpoint:</strong> ${errorDetails.endpoint || "N/A"}</p>
+          <p><strong>Status:</strong> ${errorDetails.status || "N/A"}</p>
+          <p><strong>Error Code:</strong> ${errorDetails.errorCode || "N/A"}</p>
+          <p><strong>Error Message:</strong> ${errorDetails.errorMessage || "N/A"}</p>
+          <p><strong>Timestamp:</strong> ${errorDetails.timestamp || "N/A"}</p>
+          <pre style="background: #1f2937; color: #f3f4f6; padding: 15px; font-size: 12px; white-space: pre-wrap;">${errorJson}</pre>
+        </div>
+      `;
+
+      return this.sendViaSMTP(
+        config.devEmail,
+        `🚨 [DEV] Forward Error: ${accountEmail} - ${errorDetails.errorCode || errorDetails.status || "Unknown"}`,
+        html,
+      );
     }
   }
 }

@@ -110,6 +110,19 @@ forwardQueue.process(1, async (job) => {
   const { accountId, accountEmail, messageId } = job.data;
 
   try {
+    // 0. Check if account is still active (may have been marked ERROR by previous job)
+    const account = await prisma.mailAccount.findUnique({
+      where: { id: accountId },
+      select: { status: true, isEnabled: true },
+    });
+
+    if (!account || account.status !== "CONNECTED" || !account.isEnabled) {
+      console.log(
+        `[Queue] Account ${accountEmail} not active (status: ${account?.status}), skipping job`,
+      );
+      return { status: "ACCOUNT_INACTIVE" };
+    }
+
     // 1. Read message preview (lightweight)
     const msgPreview = await graphService.getMessagePreview(
       accountId,
