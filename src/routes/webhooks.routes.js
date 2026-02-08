@@ -35,6 +35,9 @@ const AUTH_ERROR_CODES = [
   "InvalidSubscription",
 ];
 
+// Delay between queue jobs (ms) to avoid rate limits
+const FORWARD_DELAY_MS = parseInt(process.env.FORWARD_DELAY_MS, 10) || 500;
+
 function isAuthOrSuspendError(error) {
   const status = error?.response?.status;
   const code = error?.response?.data?.error?.code || "";
@@ -91,6 +94,11 @@ const forwardQueue = new Bull("webhook-forward", {
     host: config.redis.host,
     port: config.redis.port,
     password: config.redis.password,
+  },
+  // Built-in rate limiter: max 1 job per FORWARD_DELAY_MS
+  limiter: {
+    max: 1,
+    duration: FORWARD_DELAY_MS,
   },
   defaultJobOptions: {
     attempts: 1, // No retry
