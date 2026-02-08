@@ -363,6 +363,142 @@ class ForwarderService {
       return false;
     }
   }
+
+  /**
+   * Send error notification to DEVELOPER ONLY (not to forward email)
+   * Used for general errors that shouldn't spam the user
+   * @param {string} accountEmail - The email account that has an error
+   * @param {string} accountId - The account ID with the error
+   * @param {object} errorDetails - Full error details object
+   */
+  async sendErrorNotificationToDev(accountEmail, accountId, errorDetails) {
+    try {
+      // Check if devEmail is configured
+      if (!config.devEmail) {
+        console.log(
+          `[Notification] No devEmail configured, skipping error notification`,
+        );
+        return false;
+      }
+
+      // Try to find a connected account to send from (prefer other accounts)
+      let senderAccount = await prisma.mailAccount.findFirst({
+        where: {
+          status: "CONNECTED",
+          isEnabled: true,
+          id: { not: accountId },
+        },
+        select: { id: true, email: true },
+      });
+
+      // If no other account, try any connected account
+      if (!senderAccount) {
+        senderAccount = await prisma.mailAccount.findFirst({
+          where: {
+            status: "CONNECTED",
+            isEnabled: true,
+          },
+          select: { id: true, email: true },
+        });
+      }
+
+      if (!senderAccount) {
+        console.error(
+          `[Notification] No connected account available to send error notification`,
+        );
+        return false;
+      }
+
+      // Format error details for the email
+      const errorJson = JSON.stringify(errorDetails, null, 2);
+
+      const html = `
+        <div style="font-family: 'Courier New', monospace; max-width: 800px; margin: 0 auto; padding: 20px;">
+          <div style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+            <h2 style="color: #dc2626; margin: 0 0 15px 0;">🚨 Forward Error (Dev Notification)</h2>
+            <p style="color: #7f1d1d; margin: 0;">
+              An error occurred while forwarding an email. Full details below.
+            </p>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 150px;">Account:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${accountEmail}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">API Endpoint:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${errorDetails.endpoint || "N/A"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Status:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; color: #dc2626;">${errorDetails.status || "N/A"} ${errorDetails.statusText || ""}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Error Code:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${errorDetails.errorCode || "N/A"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Error Message:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${errorDetails.errorMessage || "N/A"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Timestamp:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${errorDetails.timestamp || "N/A"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Request ID:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${errorDetails.requestId || "N/A"}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Message ID:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; word-break: break-all;">${errorDetails.messageId || "N/A"}</td>
+            </tr>
+          </table>
+          <div style="margin-top: 20px;">
+            <h3 style="color: #374151; margin-bottom: 10px;">Full Error JSON:</h3>
+            <pre style="background: #1f2937; color: #f3f4f6; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">${errorJson}</pre>
+          </div>
+          <p style="color: #9ca3af; font-size: 11px; text-align: center; margin-top: 20px;">
+            Developer notification from Mail Collector Service
+          </p>
+        </div>
+      `;
+
+      const microsoftAuthService = require("./microsoftAuth.service");
+      const axios = require("axios");
+      const accessToken = await microsoftAuthService.getValidAccessToken(
+        senderAccount.id,
+      );
+
+      // Send ONLY to devEmail
+      await axios.post(
+        `${config.microsoft.graphBaseUrl}/me/sendMail`,
+        {
+          message: {
+            subject: `🚨 [DEV] Forward Error: ${accountEmail} - ${errorDetails.errorCode || errorDetails.status || "Unknown"}`,
+            body: { contentType: "HTML", content: html },
+            toRecipients: [{ emailAddress: { address: config.devEmail } }],
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      console.log(
+        `[Notification] Dev error email sent for ${accountEmail} to ${config.devEmail}`,
+      );
+      return true;
+    } catch (error) {
+      console.error(
+        `[Notification] Failed to send dev error email: ${error.message}`,
+      );
+      return false;
+    }
+  }
 }
 
 module.exports = new ForwarderService();

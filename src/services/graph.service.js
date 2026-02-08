@@ -189,6 +189,22 @@ class GraphService {
     return response.data;
   }
 
+  /**
+   * Get a lightweight message preview (only from, subject, receivedDateTime, internetMessageId)
+   * Used by webhook to check Steam filter without reading full message body
+   */
+  async getMessagePreview(accountId, messageId) {
+    const accessToken =
+      await microsoftAuthService.getValidAccessToken(accountId);
+    const client = this.createClient(accessToken);
+    const response = await this.withRetry(() =>
+      client.get(
+        `/me/messages/${messageId}?$select=id,subject,from,receivedDateTime,internetMessageId`,
+      ),
+    );
+    return response.data;
+  }
+
   async getMessageAttachments(accountId, messageId) {
     const accessToken =
       await microsoftAuthService.getValidAccessToken(accountId);
