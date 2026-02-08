@@ -26,30 +26,30 @@
 
 ## 🌐 نظرة عامة
 
-### كيف يعمل النظام؟
 
+### كيف يعمل النظام؟ (الإصدار الجديد — Webhook)
+
+النظام الآن يعتمد على Webhook من Microsoft Graph API بدلاً من Polling كل 30 ثانية. عند وصول رسالة جديدة لأي حساب، يقوم Microsoft بإرسال إشعار (Webhook) إلى السيرفر لدينا، ليتم معالجة الرسالة فوراً.
+
+```mermaid
+flowchart TD
+  subgraph Users
+    A1["Outlook Account\\nuser1@..."]
+    A2["Outlook Account\\nuser2@..."]
+    A3["Outlook Account\\nuser3@..."]
+  end
+  A1 -->|"Microsoft Graph API\\n(Subscription Webhook)"| B[Webhook Endpoint\\n/api/webhooks/mail]
+  A2 -->|"Microsoft Graph API\\n(Subscription Webhook)"| B
+  A3 -->|"Microsoft Graph API\\n(Subscription Webhook)"| B
+  B -->|"Queue Job"| C["Mail Processor\\n(Worker)"]
+  C -->|"Forward via Graph API"| D["📧 البريد الموحد\\ninfo@xxx.com"]
+  C -->|"تجديد التوكنات تلقائي كل ساعة"| E["Token Refresher\\n(Every hour)"]
 ```
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│  Outlook Account │     │  Outlook Account │     │  Outlook Account │
-│   user1@...      │     │   user2@...      │     │   user3@...      │
-└────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘
-         │                        │                        │
-         └────────────┬───────────┴────────────────────────┘
-                      │  Microsoft Graph API
-                      ▼  (Delta Query - رسائل جديدة فقط)
-              ┌───────────────┐
-              │  Mail Worker  │  (Bull Queue + Redis)
-              │  كل 30 ثانية  │
-              └───────┬───────┘
-                      │  Graph API Forward
-                      │  POST /me/messages/{id}/forward
-                      ▼
-              ┌───────────────┐
-              │  📧 البريد   │
-              │   الموحد     │
-              │ info@xxx.com │
-              └───────────────┘
-```
+
+**الملخص:**
+- عند وصول رسالة جديدة لأي حساب، يتم إشعار النظام فوراً عبر Webhook.
+- تتم معالجة الرسالة وتحويلها مباشرة إلى البريد الموحد.
+- هناك عملية مجدولة كل ساعة لتجديد التوكنات تلقائياً للحسابات التي تحتاج ذلك.
 
 ### المميزات
 
@@ -86,7 +86,7 @@ npm install
 ### 2. نسخ ملف الإعدادات
 
 ```bash
-cp .env.example .env
+cp .env
 ```
 
 ### 3. تعديل `.env` (راجع القسم التالي)
@@ -140,7 +140,6 @@ npm run setup
 | `Mail.Send`      | Delegated | إعادة توجيه الرسائل (Forward) |
 | `offline_access` | Delegated | الحصول على Refresh Token      |
 
-> ⚠️ **مهم:** بعد إضافة `Mail.Send`، يجب إعادة ربط كل الحسابات (Reauth) لأخذ الصلاحية الجديدة.
 
 ---
 
