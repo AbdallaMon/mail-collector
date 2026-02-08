@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   // Default admin credentials
-  const defaultEmail = "admin@dmstoresa2.pro";
+  const defaultEmail = "fwd@dmstoresa2.pro";
   const defaultPassword = "admin123";
 
   // Check if admin already exists
