@@ -5,71 +5,112 @@ const graphService = require("../services/graph.service");
 const forwarderService = require("../services/forwarder.service");
 const webhookService = require("../services/webhook.service");
 
+// ---------------- Helpers / Config ----------------
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function parseCsvEnv(v) {
+  return (v || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const STEAM_ONLY = (process.env.STEAM_ONLY || "true").toLowerCase() === "true";
+const STEAM_ALLOWED_DOMAINS = parseCsvEnv(
+  process.env.STEAM_ALLOWED_DOMAINS,
+).map((d) => d.toLowerCase());
+const STEAM_ALLOWED_SENDERS = parseCsvEnv(
+  process.env.STEAM_ALLOWED_SENDERS,
+).map((s) => s.toLowerCase());
+const STEAM_SUBJECT_KEYWORDS = parseCsvEnv(
+  process.env.STEAM_SUBJECT_KEYWORDS,
+).map((s) => s.toLowerCase());
+
+const FORWARD_DELAY_MS = parseInt(process.env.FORWARD_DELAY_MS || "5000", 10);
+
+function isSteamMessage(fullMessage) {
+  const fromAddress = (
+    fullMessage?.from?.emailAddress?.address || ""
+  ).toLowerCase();
+  const subject = (fullMessage?.subject || "").toLowerCase();
+
+  // 1) Exact allowed sender
+  if (STEAM_ALLOWED_SENDERS.includes(fromAddress)) return true;
+
+  // 2) Domain allowed
+  const domain = fromAddress.split("@")[1] || "";
+  if (domain && STEAM_ALLOWED_DOMAINS.includes(domain)) return true;
+
+  // 3) Keywords fallback
+  if (STEAM_SUBJECT_KEYWORDS.length) {
+    return STEAM_SUBJECT_KEYWORDS.some((k) => subject.includes(k));
+  }
+
+  return false;
+}
+
 /**
  * Webhook endpoint for Microsoft Graph notifications
  * POST /api/webhooks/mail
  *
- * This endpoint handles:
- * 1. Validation requests from Microsoft (when creating subscription)
- * 2. Change notifications when new emails arrive
+ * Handles:
+ * 1) Validation requests from Microsoft (when creating subscription)
+ * 2) Change notifications when new emails arrive
  *
- * Note: No message logging for success - only increment counter
- * Error logging is kept for debugging and notifications
+ * Important:
+ * - Must reply within ~3 seconds => we return 202 immediately
+ * - Then we process async
  */
 router.post("/mail", async (req, res) => {
-  // Handle validation request from Microsoft
+  // Validation
   if (req.query.validationToken) {
     console.log("[Webhook] Validation request received");
     res.set("Content-Type", "text/plain");
     return res.status(200).send(req.query.validationToken);
   }
 
-  // Handle change notifications
   try {
     const notifications = req.body?.value || [];
-
     if (notifications.length === 0) {
       return res.status(202).send();
     }
 
-    // Respond immediately to Microsoft (required within 3 seconds)
+    // Respond immediately (required)
     res.status(202).send();
 
-    // Process notifications asynchronously
+    // Process notifications async
     for (const notification of notifications) {
       try {
         await processNotification(notification);
       } catch (error) {
         console.error(
-          `[Webhook] Error processing notification:`,
+          "[Webhook] Error processing notification:",
           error.message,
         );
       }
     }
   } catch (error) {
     console.error("[Webhook] Error handling notifications:", error.message);
-    // Still return 202 to prevent Microsoft from retrying
-    if (!res.headersSent) {
-      res.status(202).send();
-    }
+    if (!res.headersSent) res.status(202).send();
   }
 });
 
 /**
  * Process a single notification
- * @param {object} notification - Microsoft Graph change notification
  */
 async function processNotification(notification) {
   const { subscriptionId, clientState, resource, resourceData } = notification;
 
-  // Validate the notification
+  // Validate notification (clientState + subscriptionId)
   const subscription = await webhookService.validateNotification(
     clientState,
     subscriptionId,
   );
 
   if (!subscription) {
-    console.warn(`[Webhook] Invalid notification, skipping`);
+    console.warn("[Webhook] Invalid notification, skipping");
     return;
   }
 
@@ -91,14 +132,11 @@ async function processNotification(notification) {
   const messageId = resourceData?.id || resource?.split("/messages/")[1];
 
   if (!messageId) {
-    console.warn(`[Webhook] No message ID in notification`);
+    console.warn("[Webhook] No message ID in notification");
     return;
   }
 
   console.log(`[Webhook] New message for ${account.email}: ${messageId}`);
-
-  // NOTE: Dedup check removed - Microsoft usually sends one notification per message
-  // If duplicates occur, the message will be forwarded twice (acceptable trade-off)
 
   try {
     // Get full message
@@ -109,9 +147,59 @@ async function processNotification(notification) {
       return;
     }
 
+    // ✅ Dedup: لو الرسالة اتفورت قبل كده خلاص
+    const existingLog = await prisma.mailMessageLog.findUnique({
+      where: {
+        accountId_graphMessageId: {
+          accountId,
+          graphMessageId: messageId,
+        },
+      },
+      select: { forwardStatus: true },
+    });
+
+    if (existingLog?.forwardStatus === "FORWARDED") {
+      console.log(
+        `[Webhook] Duplicate notification, already forwarded: ${messageId}`,
+      );
+      return;
+    }
+
+    // ✅ Steam-only filter
+    if (STEAM_ONLY && !isSteamMessage(fullMessage)) {
+      console.log(`[Webhook] Not Steam email, skipping: ${messageId}`);
+
+      // Optional: log as SKIPPED for visibility
+      await prisma.mailMessageLog.upsert({
+        where: {
+          accountId_graphMessageId: { accountId, graphMessageId: messageId },
+        },
+        create: {
+          accountId,
+          graphMessageId: messageId,
+          internetMessageId: fullMessage.internetMessageId,
+          forwardStatus: "SKIPPED",
+          error: "Skipped: not a Steam email",
+          attempts: 1,
+          lastAttemptAt: new Date(),
+        },
+        update: {
+          forwardStatus: "SKIPPED",
+          error: "Skipped: not a Steam email",
+          attempts: { increment: 1 },
+          lastAttemptAt: new Date(),
+        },
+      });
+
+      return;
+    }
+
     const subject = fullMessage.subject || "(No Subject)";
     const from = fullMessage.from?.emailAddress?.address || "unknown";
     console.log(`[Webhook] Processing: "${subject}" from ${from}`);
+
+    // ✅ Delay 5 seconds قبل الفورورد (Rate limit + avoid burst)
+    await sleep(FORWARD_DELAY_MS);
 
     // Forward the message
     await forwarderService.forwardGraphMessage(
@@ -121,26 +209,45 @@ async function processNotification(notification) {
       accountId,
     );
 
-    console.log(`[Webhook] ✓ Message forwarded successfully`);
+    console.log("[Webhook] ✓ Message forwarded successfully");
 
-    // Increment forwarded counter and update timestamps (no message logging)
+    // ✅ Log success FORWARDED (so Dedup works)
+    await prisma.mailMessageLog.upsert({
+      where: {
+        accountId_graphMessageId: { accountId, graphMessageId: messageId },
+      },
+      create: {
+        accountId,
+        graphMessageId: messageId,
+        internetMessageId: fullMessage.internetMessageId,
+        forwardStatus: "FORWARDED",
+        attempts: 1,
+        lastAttemptAt: new Date(),
+      },
+      update: {
+        forwardStatus: "FORWARDED",
+        lastAttemptAt: new Date(),
+      },
+    });
+
+    // Update counters/timestamps
     await prisma.mailAccount.update({
       where: { id: accountId },
       data: {
         forwardedCount: { increment: 1 },
         lastSyncAt: new Date(),
-        lastMessageAt: new Date(fullMessage.receivedDateTime),
+        lastMessageAt: fullMessage.receivedDateTime
+          ? new Date(fullMessage.receivedDateTime)
+          : new Date(),
       },
     });
-
-    // NOTE: Success message logging removed - only counting forwarded messages
   } catch (error) {
     console.error(
       `[Webhook] Failed to process message ${messageId}:`,
       error.message,
     );
 
-    // Log error to database (keep for debugging)
+    // Log failure
     await prisma.mailMessageLog.upsert({
       where: {
         accountId_graphMessageId: {
@@ -164,7 +271,7 @@ async function processNotification(notification) {
       },
     });
 
-    // Send error notification to forward email + dev email
+    // Notify once per message failure (this webhook flow = single attempt)
     await forwarderService.sendErrorNotification(
       account.email,
       accountId,
