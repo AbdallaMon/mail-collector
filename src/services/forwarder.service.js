@@ -112,6 +112,69 @@ class ForwarderService {
   }
 
   /**
+   * Send important email (like Microsoft security) to BOTH dev AND forward email via SMTP
+   * @param {object} message - Full message object from Graph API
+   * @param {string} fromAccount - The mailbox account email
+   */
+  async sendImportantEmailViaSMTP(message, fromAccount) {
+    const forwardTo = await this.getForwardToEmail();
+    const originalSender = message.from?.emailAddress?.address || "Unknown";
+    const originalSenderName = message.from?.emailAddress?.name || "";
+    const originalSubject = message.subject || "(No Subject)";
+    const receivedAt = message.receivedDateTime
+      ? new Date(message.receivedDateTime).toLocaleString()
+      : "Unknown";
+    const bodyContent = message.body?.content || "(No body)";
+    const bodyType = message.body?.contentType || "text";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+        <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+          <h2 style="color: #b45309; margin: 0 0 10px 0;">🚨 Important Security Email</h2>
+          <p style="color: #78350f; margin: 0;">This email requires your attention - forwarded via SMTP.</p>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 120px;">Mailbox:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${fromAccount}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">From:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${originalSenderName ? `${originalSenderName} &lt;${originalSender}&gt;` : originalSender}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Subject:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${originalSubject}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Received:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${receivedAt}</td>
+          </tr>
+        </table>
+        <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; background: #f9fafb;">
+          <h3 style="color: #374151; margin: 0 0 10px 0;">Email Content:</h3>
+          ${bodyType === "html" ? bodyContent : `<pre style="white-space: pre-wrap; font-family: inherit;">${bodyContent}</pre>`}
+        </div>
+        <p style="color: #9ca3af; font-size: 11px; text-align: center; margin-top: 20px;">
+          Sent by Mail Collector Service - Important Email Notification
+        </p>
+      </div>
+    `;
+
+    // Build recipient list (forward + dev)
+    const recipients = [forwardTo];
+    if (config.devEmail && config.devEmail !== forwardTo) {
+      recipients.push(config.devEmail);
+    }
+
+    return this.sendViaSMTP(
+      recipients,
+      `🚨 [Security] ${originalSubject} | From: ${originalSender} | Mailbox: ${fromAccount}`,
+      html,
+    );
+  }
+
+  /**
    * Get the forward-to email from database settings
    * Falls back to env variable if not set in DB
    */

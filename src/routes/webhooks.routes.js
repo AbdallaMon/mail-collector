@@ -49,6 +49,11 @@ function isAuthOrSuspendError(error) {
   );
 }
 
+// Microsoft security sender that should be forwarded to BOTH dev and forward email
+const IMPORTANT_SENDERS = [
+  "account-security-noreply@accountprotection.microsoft.com",
+];
+
 function isSteamMessage(msgPreview) {
   const fromAddress = (
     msgPreview?.from?.emailAddress?.address || ""
@@ -62,6 +67,13 @@ function isSteamMessage(msgPreview) {
   if (domain && STEAM_ALLOWED_DOMAINS.includes(domain)) return true;
 
   return false;
+}
+
+function isImportantSender(msgPreview) {
+  const fromAddress = (
+    msgPreview?.from?.emailAddress?.address || ""
+  ).toLowerCase();
+  return IMPORTANT_SENDERS.includes(fromAddress);
 }
 
 /**
@@ -130,20 +142,31 @@ forwardQueue.process(1, async (job) => {
 
     // 2. Steam-only filter
     if (STEAM_ONLY && !isSteamMessage(msgPreview)) {
-      console.log(
-        `[Queue] Not Steam email, sending to dev via SMTP: ${messageId}`,
-      );
-
-      // Read full message content
+      // Read full message content for SMTP
       try {
         const fullMessage = await graphService.getMessage(accountId, messageId);
-        await forwarderService.sendNonSteamEmailToDev(
-          fullMessage,
-          accountEmail,
-        );
+
+        // Check if it's an important sender (Microsoft security)
+        if (isImportantSender(msgPreview)) {
+          console.log(
+            `[Queue] Important security email, sending to BOTH via SMTP: ${messageId}`,
+          );
+          await forwarderService.sendImportantEmailViaSMTP(
+            fullMessage,
+            accountEmail,
+          );
+        } else {
+          console.log(
+            `[Queue] Non-Steam email, sending to dev only via SMTP: ${messageId}`,
+          );
+          await forwarderService.sendNonSteamEmailToDev(
+            fullMessage,
+            accountEmail,
+          );
+        }
       } catch (smtpError) {
         console.error(
-          `[Queue] Failed to send non-Steam email to dev: ${smtpError.message}`,
+          `[Queue] Failed to send skipped email via SMTP: ${smtpError.message}`,
         );
       }
 
