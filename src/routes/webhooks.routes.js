@@ -344,6 +344,11 @@ async function enqueueNotification(notification) {
   const { subscriptionId, clientState, resource, resourceData } = notification;
 
   // Validate notification (clientState + subscriptionId)
+  console.log(
+    `[Webhook] Received notification for subscription ${subscriptionId}`,
+  );
+  console.log(`[Webhook] Resource: ${resource}, ClientState: ${clientState}`);
+  console.log(`[Webhook] ResourceData: ${JSON.stringify(resourceData)}`);
   const subscription = await webhookService.validateNotification(
     clientState,
     subscriptionId,
