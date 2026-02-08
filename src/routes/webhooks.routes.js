@@ -38,6 +38,9 @@ const AUTH_ERROR_CODES = [
 // Delay between queue jobs (ms) to avoid rate limits
 const FORWARD_DELAY_MS = parseInt(process.env.FORWARD_DELAY_MS, 10) || 500;
 
+// Sleep helper for delay between forwards
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function isAuthOrSuspendError(error) {
   const status = error?.response?.status;
   const code = error?.response?.data?.error?.code || "";
@@ -95,11 +98,6 @@ const forwardQueue = new Bull("webhook-forward", {
     port: config.redis.port,
     password: config.redis.password,
   },
-  // Built-in rate limiter: max 1 job per FORWARD_DELAY_MS
-  limiter: {
-    max: 1,
-    duration: FORWARD_DELAY_MS,
-  },
   defaultJobOptions: {
     attempts: 1, // No retry
     removeOnComplete: true, // Remove immediately after success
@@ -155,6 +153,10 @@ forwardQueue.process(1, async (job) => {
           : new Date(),
       },
     });
+
+    // 5. DELAY before next job to avoid rate limits
+    console.log(`[Queue] Waiting ${FORWARD_DELAY_MS}ms before next forward...`);
+    await sleep(FORWARD_DELAY_MS);
 
     return { status: "FORWARDED" };
   } catch (error) {
