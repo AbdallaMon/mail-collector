@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", function () {
     logout();
   });
 
-  document.getElementById("sync-all-btn").addEventListener("click", syncAll);
+  // document.getElementById("sync-all-btn").addEventListener("click", syncAll);
 
   // Load dashboard data
   loadDashboard();
@@ -94,7 +94,7 @@ async function syncAll() {
     "Syncing all accounts...<br><small>This may take a few minutes</small>",
   );
 
-  document.getElementById("sync-all-btn").disabled = true;
+  // document.getElementById("sync-all-btn").disabled = true;
 
   try {
     var response = await Api.post("/accounts/sync-all");
@@ -109,7 +109,7 @@ async function syncAll() {
     Modal.close(loadingModal);
     Modal.error("Sync Failed", "Failed to sync accounts: " + error.message);
   } finally {
-    document.getElementById("sync-all-btn").disabled = false;
+    // document.getElementById("sync-all-btn").disabled = false;
   }
 }
 
