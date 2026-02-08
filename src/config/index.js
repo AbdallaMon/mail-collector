@@ -65,7 +65,7 @@ module.exports = {
   worker: {
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS, 10) || 10000,
     concurrency: parseInt(process.env.WORKER_CONCURRENCY, 10) || 5,
-    maxRetries: parseInt(process.env.MAX_RETRIES, 10) || 5,
+    maxRetries: parseInt(process.env.MAX_RETRIES, 10) || 1,
     retryDelayMs: parseInt(process.env.RETRY_DELAY_MS, 10) || 5000,
   },
 

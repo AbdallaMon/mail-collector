@@ -170,17 +170,30 @@ class SyncService {
             if (r.value.status === "forwarded") result.messagesForwarded++;
             else if (r.value.status === "skipped") result.messagesSkipped++;
           } else {
+            const err = r.reason;
+            const status = err?.response?.status;
+            const errorData = err?.response?.data?.error || err?.response?.data;
+
+            const details = {
+              status,
+              code: errorData?.code,
+              message: errorData?.message || err?.message,
+              requestId: err?.response?.headers?.["request-id"],
+              clientRequestId: err?.response?.headers?.["client-request-id"],
+            };
+
             result.messagesFailed++;
             result.errors.push({
               messageId: batch[j].id,
-              error: r.reason?.message,
+              error: details.message,
             });
-            // Log failure to DB (errors only)
+
+            // 403 => نهائي: سجل FAILED مرة واحدة
             await forwarderService.logForward(
               accountId,
               batch[j],
               "FAILED",
-              r.reason?.message,
+              JSON.stringify(details),
             );
             // Increment failed counter on account
             await prisma.mailAccount.update({

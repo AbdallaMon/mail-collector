@@ -20,6 +20,7 @@ dist/
 
 # Local documentation (do not commit)
 README_LOCAL.md
+SERVER_USERS.md
 
 # Debug
 npm-debug.log*

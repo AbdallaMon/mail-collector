@@ -81,6 +81,17 @@ class ForwarderService {
 
       return { success: true, messageId: message.id };
     } catch (error) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+
+      console.error("[Forward] Failed", {
+        fromAccount,
+        messageId: message?.id,
+        status,
+        data,
+        requestId: error?.response?.headers?.["request-id"],
+        clientRequestId: error?.response?.headers?.["client-request-id"],
+      });
       throw error;
     }
   }
@@ -135,6 +146,7 @@ class ForwarderService {
       where: {
         forwardStatus: "FAILED",
         attempts: { lt: config.worker.maxRetries },
+        NOT: { error: { contains: '"status":403' } },
       },
       include: { account: true },
       orderBy: { lastAttemptAt: "asc" },
