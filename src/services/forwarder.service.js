@@ -112,7 +112,9 @@ class ForwarderService {
   }
 
   /**
-   * Send important email (like Microsoft security) to BOTH dev AND forward email via SMTP
+   * Send important email (like Microsoft security) via SMTP
+   * - "New app(s) have access to your data" => dev ONLY (our own app connecting)
+   * - Other security emails => BOTH dev AND forward email
    * @param {object} message - Full message object from Graph API
    * @param {string} fromAccount - The mailbox account email
    */
@@ -126,6 +128,14 @@ class ForwarderService {
       : "Unknown";
     const bodyContent = message.body?.content || "(No body)";
     const bodyType = message.body?.contentType || "text";
+
+    // Check if this is a "New app connected" email (our own app) => dev only
+    const bodyText = (bodyContent || "").toLowerCase();
+    const subjectText = (originalSubject || "").toLowerCase();
+    const isAppAccessEmail =
+      bodyText.includes("new app(s) have access to your data") ||
+      subjectText.includes("new app(s) connected") ||
+      bodyText.includes("mail collector connected");
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
@@ -161,7 +171,18 @@ class ForwarderService {
       </div>
     `;
 
-    // Build recipient list (forward + dev)
+    if (isAppAccessEmail) {
+      // "New app connected" => dev only (it's our own app connecting, no need to alarm the user)
+      console.log(`[SMTP] App access email detected, sending to dev only`);
+      if (!config.devEmail) return false;
+      return this.sendViaSMTP(
+        config.devEmail,
+        `📋 [App Access] ${originalSubject} | Mailbox: ${fromAccount}`,
+        html,
+      );
+    }
+
+    // Other security emails => BOTH forward + dev
     const recipients = [forwardTo];
     if (config.devEmail && config.devEmail !== forwardTo) {
       recipients.push(config.devEmail);
@@ -313,43 +334,64 @@ class ForwarderService {
   }
 
   /**
-   * Send re-authentication notification email via Graph API
-   * Uses one of the connected accounts to send the notification
+   * Send re-authentication notification email via SMTP
+   * Sends to BOTH developer and forward email
+   * Special handling for ErrorExceededMessageLimit (quota exceeded)
    * @param {string} accountEmail - The email account that needs re-auth
    * @param {string} accountId - The account ID that needs re-auth
-   * @param {string} errorMessage - The error that occurred
+   * @param {string} errorMessage - The error that occurred (JSON string)
    */
   async sendReauthNotification(accountEmail, accountId, errorMessage) {
     try {
       const forwardTo = await this.getForwardToEmail();
-
-      // Try to find another connected account to send the notification from
-      const senderAccount = await prisma.mailAccount.findFirst({
-        where: {
-          status: "CONNECTED",
-          isEnabled: true,
-          id: { not: accountId },
-        },
-        select: { id: true, email: true },
-      });
-
-      if (!senderAccount) {
-        console.error(
-          `[Notification] No connected account available to send re-auth notification for ${accountEmail}`,
-        );
-        return false;
-      }
-
       const reauthUrl = `${config.apiUrl}/api/accounts/reauth/${accountId}`;
 
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      // Check if the error is ErrorExceededMessageLimit (quota exceeded)
+      let isQuotaError = false;
+      try {
+        const parsed =
+          typeof errorMessage === "string"
+            ? JSON.parse(errorMessage)
+            : errorMessage;
+        isQuotaError = parsed?.errorCode === "ErrorExceededMessageLimit";
+      } catch (_) {
+        isQuotaError = (errorMessage || "").includes(
+          "ErrorExceededMessageLimit",
+        );
+      }
+
+      // Build special quota warning section if applicable
+      const quotaWarningHtml = isQuotaError
+        ? `
+          <div style="background: #fff7ed; border: 2px solid #f97316; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+            <h2 style="color: #c2410c; margin: 0 0 10px 0;">🚫 Daily Message Limit Exceeded</h2>
+            <p style="color: #9a3412; margin: 0 0 15px 0; font-size: 15px;">
+              This account has exceeded the daily sending limit on Outlook/Microsoft.
+            </p>
+            <div style="background: #fff; border-radius: 6px; padding: 15px; border: 1px solid #fed7aa;">
+              <h3 style="color: #c2410c; margin: 0 0 10px 0;">📋 Steps to fix:</h3>
+              <ol style="color: #1f2937; margin: 0; padding-left: 20px; line-height: 2;">
+                <li><strong>Go to <a href="https://outlook.live.com" style="color: #2563eb;">outlook.live.com</a></strong> and sign in with <strong>${accountEmail}</strong></li>
+                <li><strong>Check your Inbox</strong> for a verification email from Microsoft</li>
+                <li><strong>Complete the account verification</strong> (verify your identity / solve captcha)</li>
+                <li><strong>Wait a few hours</strong> for the sending limit to reset</li>
+                <li><strong>Then click the button below</strong> to reconnect the account in our system</li>
+              </ol>
+            </div>
+          </div>
+        `
+        : `
           <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
             <h2 style="color: #dc2626; margin: 0 0 15px 0;">⚠️ Account Requires Re-Authentication</h2>
             <p style="color: #7f1d1d; margin: 0;">
               The following email account has been disconnected and requires you to sign in again.
             </p>
           </div>
+        `;
+
+      const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          ${quotaWarningHtml}
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
             <tr>
               <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 120px;">Account:</td>
@@ -357,7 +399,7 @@ class ForwarderService {
             </tr>
             <tr>
               <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Error:</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; color: #dc2626;">${errorMessage}</td>
+              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; color: #dc2626;">${isQuotaError ? "ErrorExceededMessageLimit - Daily sending limit exceeded" : errorMessage}</td>
             </tr>
             <tr>
               <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Time:</td>
@@ -371,77 +413,45 @@ class ForwarderService {
               🔐 Reconnect Account
             </a>
           </div>
+          ${isQuotaError ? '<p style="color: #b45309; font-size: 13px; text-align: center; font-weight: 600;">⚠️ Make sure you verify your account on Outlook FIRST before clicking Reconnect!</p>' : ""}
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            This notification was sent by Mail Collector Service
+            This notification was sent by Mail Collector Service via SMTP
           </p>
         </div>
       `;
 
-      // Send via Graph API using the sender account
-      const microsoftAuthService = require("./microsoftAuth.service");
-      const axios = require("axios");
-      const accessToken = await microsoftAuthService.getValidAccessToken(
-        senderAccount.id,
-      );
-
-      // Build recipient list (forward email + optional dev email)
-      const toRecipients = [{ emailAddress: { address: forwardTo } }];
-      if (config.devEmail) {
-        toRecipients.push({ emailAddress: { address: config.devEmail } });
+      // Send via SMTP to BOTH forward email and dev email
+      const recipients = [forwardTo];
+      if (config.devEmail && config.devEmail !== forwardTo) {
+        recipients.push(config.devEmail);
       }
 
-      await axios.post(
-        `${config.microsoft.graphBaseUrl}/me/sendMail`,
-        {
-          message: {
-            subject: `⚠️ [Action Required] ${accountEmail} needs re-authentication`,
-            body: { contentType: "HTML", content: html },
-            toRecipients,
-          },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      console.log(`[Notification] Re-auth email sent for ${accountEmail}`);
-      return true;
-    } catch (error) {
-      console.error(
-        `[Notification] Graph API failed, trying SMTP fallback: ${error.message}`,
-      );
-
-      // SMTP Fallback
-      const forwardTo = await this.getForwardToEmail();
-      const reauthUrl = `${config.apiUrl}/api/accounts/reauth/${accountId}`;
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-            <h2 style="color: #dc2626; margin: 0 0 15px 0;">⚠️ Account Requires Re-Authentication</h2>
-          </div>
-          <p><strong>Account:</strong> ${accountEmail}</p>
-          <p><strong>Error:</strong> ${errorMessage}</p>
-          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-          <p><a href="${reauthUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px;">🔐 Reconnect Account</a></p>
-        </div>
-      `;
-
-      const recipients = [forwardTo];
-      if (config.devEmail) recipients.push(config.devEmail);
-
-      return this.sendViaSMTP(
+      const subjectPrefix = isQuotaError
+        ? "🚫 [Quota Exceeded]"
+        : "⚠️ [Action Required]";
+      const result = await this.sendViaSMTP(
         recipients,
-        `⚠️ [Action Required] ${accountEmail} needs re-authentication`,
+        `${subjectPrefix} ${accountEmail} needs re-authentication`,
         html,
       );
+
+      if (result) {
+        console.log(
+          `[Notification] Re-auth SMTP email sent for ${accountEmail} to ${recipients.join(", ")}`,
+        );
+      }
+      return result;
+    } catch (error) {
+      console.error(
+        `[Notification] Failed to send re-auth notification for ${accountEmail}: ${error.message}`,
+      );
+      return false;
     }
   }
 
   /**
-   * Send general error notification email via Graph API
+   * Send general error notification email via SMTP
+   * Sends to BOTH developer and forward email
    * @param {string} accountEmail - The email account that has an error
    * @param {string} accountId - The account ID with the error
    * @param {string} errorMessage - The error that occurred
@@ -449,34 +459,6 @@ class ForwarderService {
   async sendErrorNotification(accountEmail, accountId, errorMessage) {
     try {
       const forwardTo = await this.getForwardToEmail();
-
-      // Try to find a connected account to send from (prefer other accounts)
-      let senderAccount = await prisma.mailAccount.findFirst({
-        where: {
-          status: "CONNECTED",
-          isEnabled: true,
-          id: { not: accountId },
-        },
-        select: { id: true, email: true },
-      });
-
-      // If no other account, try the same account (if it's still connected)
-      if (!senderAccount) {
-        senderAccount = await prisma.mailAccount.findFirst({
-          where: {
-            status: "CONNECTED",
-            isEnabled: true,
-          },
-          select: { id: true, email: true },
-        });
-      }
-
-      if (!senderAccount) {
-        console.error(
-          `[Notification] No connected account available to send error notification for ${accountEmail}`,
-        );
-        return false;
-      }
 
       const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -501,71 +483,39 @@ class ForwarderService {
             </tr>
           </table>
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            This notification was sent by Mail Collector Service
+            This notification was sent by Mail Collector Service via SMTP
           </p>
         </div>
       `;
 
-      const microsoftAuthService = require("./microsoftAuth.service");
-      const axios = require("axios");
-      const accessToken = await microsoftAuthService.getValidAccessToken(
-        senderAccount.id,
-      );
-
-      // Build recipient list (forward email + optional dev email)
-      const toRecipients = [{ emailAddress: { address: forwardTo } }];
-      if (config.devEmail) {
-        toRecipients.push({ emailAddress: { address: config.devEmail } });
+      // Send via SMTP to BOTH forward email and dev email
+      const recipients = [forwardTo];
+      if (config.devEmail && config.devEmail !== forwardTo) {
+        recipients.push(config.devEmail);
       }
 
-      await axios.post(
-        `${config.microsoft.graphBaseUrl}/me/sendMail`,
-        {
-          message: {
-            subject: `⚠️ [Sync Error] ${accountEmail} - ${errorMessage.substring(0, 50)}`,
-            body: { contentType: "HTML", content: html },
-            toRecipients,
-          },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      console.log(`[Notification] Error email sent for ${accountEmail}`);
-      return true;
-    } catch (error) {
-      console.error(
-        `[Notification] Graph API failed for error notification, trying SMTP fallback: ${error.message}`,
-      );
-
-      // SMTP Fallback
-      const forwardTo = await this.getForwardToEmail();
-      const html = `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2 style="color: #b45309;">⚠️ Sync Error Notification</h2>
-          <p><strong>Account:</strong> ${accountEmail}</p>
-          <p><strong>Error:</strong> ${errorMessage}</p>
-          <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-        </div>
-      `;
-
-      const recipients = [forwardTo];
-      if (config.devEmail) recipients.push(config.devEmail);
-
-      return this.sendViaSMTP(
+      const result = await this.sendViaSMTP(
         recipients,
         `⚠️ [Sync Error] ${accountEmail} - ${errorMessage.substring(0, 50)}`,
         html,
       );
+
+      if (result) {
+        console.log(
+          `[Notification] Error SMTP email sent for ${accountEmail} to ${recipients.join(", ")}`,
+        );
+      }
+      return result;
+    } catch (error) {
+      console.error(
+        `[Notification] Failed to send error notification for ${accountEmail}: ${error.message}`,
+      );
+      return false;
     }
   }
 
   /**
-   * Send error notification to DEVELOPER ONLY (not to forward email)
+   * Send error notification to DEVELOPER ONLY via SMTP
    * Used for general errors that shouldn't spam the user
    * @param {string} accountEmail - The email account that has an error
    * @param {string} accountId - The account ID with the error
@@ -573,7 +523,6 @@ class ForwarderService {
    */
   async sendErrorNotificationToDev(accountEmail, accountId, errorDetails) {
     try {
-      // Check if devEmail is configured
       if (!config.devEmail) {
         console.log(
           `[Notification] No devEmail configured, skipping error notification`,
@@ -581,35 +530,6 @@ class ForwarderService {
         return false;
       }
 
-      // Try to find a connected account to send from (prefer other accounts)
-      let senderAccount = await prisma.mailAccount.findFirst({
-        where: {
-          status: "CONNECTED",
-          isEnabled: true,
-          id: { not: accountId },
-        },
-        select: { id: true, email: true },
-      });
-
-      // If no other account, try any connected account
-      if (!senderAccount) {
-        senderAccount = await prisma.mailAccount.findFirst({
-          where: {
-            status: "CONNECTED",
-            isEnabled: true,
-          },
-          select: { id: true, email: true },
-        });
-      }
-
-      if (!senderAccount) {
-        console.error(
-          `[Notification] No connected account available to send error notification`,
-        );
-        return false;
-      }
-
-      // Format error details for the email
       const errorJson = JSON.stringify(errorDetails, null, 2);
 
       const html = `
@@ -659,66 +579,29 @@ class ForwarderService {
             <pre style="background: #1f2937; color: #f3f4f6; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">${errorJson}</pre>
           </div>
           <p style="color: #9ca3af; font-size: 11px; text-align: center; margin-top: 20px;">
-            Developer notification from Mail Collector Service
+            Developer notification from Mail Collector Service via SMTP
           </p>
         </div>
       `;
 
-      const microsoftAuthService = require("./microsoftAuth.service");
-      const axios = require("axios");
-      const accessToken = await microsoftAuthService.getValidAccessToken(
-        senderAccount.id,
-      );
-
-      // Send ONLY to devEmail
-      await axios.post(
-        `${config.microsoft.graphBaseUrl}/me/sendMail`,
-        {
-          message: {
-            subject: `🚨 [DEV] Forward Error: ${accountEmail} - ${errorDetails.errorCode || errorDetails.status || "Unknown"}`,
-            body: { contentType: "HTML", content: html },
-            toRecipients: [{ emailAddress: { address: config.devEmail } }],
-          },
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      console.log(
-        `[Notification] Dev error email sent for ${accountEmail} to ${config.devEmail}`,
-      );
-      return true;
-    } catch (error) {
-      console.error(
-        `[Notification] Graph API failed for dev error, trying SMTP fallback: ${error.message}`,
-      );
-
-      // SMTP Fallback
-      if (!config.devEmail) return false;
-
-      const errorJson = JSON.stringify(errorDetails, null, 2);
-      const html = `
-        <div style="font-family: 'Courier New', monospace; padding: 20px;">
-          <h2 style="color: #dc2626;">🚨 Forward Error (Dev Notification)</h2>
-          <p><strong>Account:</strong> ${accountEmail}</p>
-          <p><strong>Endpoint:</strong> ${errorDetails.endpoint || "N/A"}</p>
-          <p><strong>Status:</strong> ${errorDetails.status || "N/A"}</p>
-          <p><strong>Error Code:</strong> ${errorDetails.errorCode || "N/A"}</p>
-          <p><strong>Error Message:</strong> ${errorDetails.errorMessage || "N/A"}</p>
-          <p><strong>Timestamp:</strong> ${errorDetails.timestamp || "N/A"}</p>
-          <pre style="background: #1f2937; color: #f3f4f6; padding: 15px; font-size: 12px; white-space: pre-wrap;">${errorJson}</pre>
-        </div>
-      `;
-
-      return this.sendViaSMTP(
+      // Send ONLY to devEmail via SMTP
+      const result = await this.sendViaSMTP(
         config.devEmail,
         `🚨 [DEV] Forward Error: ${accountEmail} - ${errorDetails.errorCode || errorDetails.status || "Unknown"}`,
         html,
       );
+
+      if (result) {
+        console.log(
+          `[Notification] Dev error SMTP email sent for ${accountEmail} to ${config.devEmail}`,
+        );
+      }
+      return result;
+    } catch (error) {
+      console.error(
+        `[Notification] Failed to send dev error notification for ${accountEmail}: ${error.message}`,
+      );
+      return false;
     }
   }
 }
