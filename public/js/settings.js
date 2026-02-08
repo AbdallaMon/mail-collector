@@ -34,12 +34,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Load system config
   loadConfig();
-  loadWorkerStatus();
+  // loadWorkerStatus();
 });
 
 async function loadConfig() {
   try {
     var response = await Api.get("/dashboard/config");
+    console.log(response, "response");
     if (response.success) {
       var forwardEmail =
         response.data.forwardTo ||
