@@ -130,7 +130,11 @@ forwardQueue.process(1, async (job) => {
 
     const subject = msgPreview.subject || "(No Subject)";
     const from = msgPreview.from?.emailAddress?.address || "unknown";
-    console.log(`[Queue] Processing: "${subject}" from ${from}`);
+
+    const startTime = new Date();
+    console.log(
+      `[Queue] [${startTime.toLocaleTimeString()}.${startTime.getMilliseconds().toString().padStart(3, "0")}] 📤 Starting forward: "${subject}" from ${from}`,
+    );
 
     // 3. Forward using Graph API
     await forwarderService.forwardGraphMessage(
@@ -140,7 +144,11 @@ forwardQueue.process(1, async (job) => {
       accountId,
     );
 
-    console.log(`[Queue] ✓ Message forwarded successfully`);
+    const endTime = new Date();
+    const forwardDuration = endTime - startTime;
+    console.log(
+      `[Queue] [${endTime.toLocaleTimeString()}.${endTime.getMilliseconds().toString().padStart(3, "0")}] ✓ Forwarded in ${forwardDuration}ms`,
+    );
 
     // 4. Update counters only (no database record for success)
     await prisma.mailAccount.update({
@@ -155,8 +163,15 @@ forwardQueue.process(1, async (job) => {
     });
 
     // 5. DELAY before next job to avoid rate limits
-    console.log(`[Queue] Waiting ${FORWARD_DELAY_MS}ms before next forward...`);
+    const delayStart = new Date();
+    console.log(
+      `[Queue] [${delayStart.toLocaleTimeString()}.${delayStart.getMilliseconds().toString().padStart(3, "0")}] ⏳ Waiting ${FORWARD_DELAY_MS}ms...`,
+    );
     await sleep(FORWARD_DELAY_MS);
+    const delayEnd = new Date();
+    console.log(
+      `[Queue] [${delayEnd.toLocaleTimeString()}.${delayEnd.getMilliseconds().toString().padStart(3, "0")}] ✓ Ready for next`,
+    );
 
     return { status: "FORWARDED" };
   } catch (error) {
