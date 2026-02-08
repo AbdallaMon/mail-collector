@@ -1115,3 +1115,154 @@ a:hover {
 .sync-results-value.error {
   color: var(--danger);
 }
+/* =========================
+   Accounts page - new UI
+   ========================= */
+
+/* Filters row (search + dropdown + clear) */
+.accounts-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.accounts-controls .input,
+.accounts-controls select {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #111827;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.accounts-controls .input {
+  min-width: 280px;
+}
+
+.accounts-controls select {
+  min-width: 180px;
+  cursor: pointer;
+  appearance: none; /* nice select look */
+  background-image:
+    linear-gradient(45deg, transparent 50%, #6b7280 50%),
+    linear-gradient(135deg, #6b7280 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 16px,
+    calc(100% - 12px) 16px;
+  background-size:
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+.accounts-controls .input:focus,
+.accounts-controls select:focus {
+  border-color: #93c5fd; /* soft blue */
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+.accounts-controls .input:hover,
+.accounts-controls select:hover {
+  border-color: #d1d5db;
+}
+
+.accounts-controls .btn.btn-outline.btn-sm {
+  height: 40px;
+  border-radius: 10px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Responsive: make inputs full width on small screens */
+@media (max-width: 520px) {
+  .accounts-controls {
+    gap: 8px;
+  }
+
+  .accounts-controls .input,
+  .accounts-controls select,
+  .accounts-controls .btn {
+    width: 100%;
+  }
+
+  .accounts-controls .input {
+    min-width: unset;
+  }
+
+  .accounts-controls select {
+    min-width: unset;
+  }
+}
+
+/* Top stats card */
+.accounts-stats-card {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #eef2f7;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 8px 24px rgba(16, 24, 40, 0.05);
+}
+
+.accounts-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+@media (max-width: 860px) {
+  .accounts-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .accounts-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.accounts-stat {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #edf2f7;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.accounts-stat-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+  letter-spacing: 0.2px;
+}
+
+.accounts-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.1;
+}
+
+/* Optional: subtle emphasis for values */
+.accounts-stat-value.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tighten page-header spacing a bit */
+.page-header {
+  gap: 10px;
+}

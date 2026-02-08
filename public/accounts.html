@@ -129,9 +129,7 @@
           </div>
 
           <!-- Search + Filter + Clear -->
-          <div
-            style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap"
-          >
+          <div class="accounts-controls">
             <input
               id="accounts-search"
               class="input"
@@ -198,48 +196,25 @@
         </div>
 
         <!-- TOP Stats Card (Total + Showing + Shown Now) -->
-        <div
-          id="accounts-stats-card"
-          class="card"
-          style="margin-bottom: 12px; padding: 14px 16px"
-        >
-          <div
-            style="
-              display: flex;
-              gap: 18px;
-              flex-wrap: wrap;
-              align-items: center;
-            "
-          >
-            <div>
-              <div class="text-sm text-gray-500">Total</div>
-              <div
-                id="accounts-total-top"
-                class="font-medium"
-                style="font-size: 18px"
-              >
+        <div id="accounts-stats-card" class="accounts-stats-card">
+          <div class="accounts-stats-grid">
+            <div class="accounts-stat">
+              <div class="accounts-stat-label">Total</div>
+              <div id="accounts-total-top" class="accounts-stat-value mono">
                 —
               </div>
             </div>
 
-            <div>
-              <div class="text-sm text-gray-500">Showing</div>
-              <div
-                id="accounts-showing-top"
-                class="font-medium"
-                style="font-size: 18px"
-              >
+            <div class="accounts-stat">
+              <div class="accounts-stat-label">Showing</div>
+              <div id="accounts-showing-top" class="accounts-stat-value mono">
                 —
               </div>
             </div>
 
-            <div>
-              <div class="text-sm text-gray-500">Shown now</div>
-              <div
-                id="accounts-shown-now-top"
-                class="font-medium"
-                style="font-size: 18px"
-              >
+            <div class="accounts-stat">
+              <div class="accounts-stat-label">Shown now</div>
+              <div id="accounts-shown-now-top" class="accounts-stat-value mono">
                 —
               </div>
             </div>
