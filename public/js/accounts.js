@@ -1,5 +1,5 @@
 // /js/accounts.js
-// Full Accounts page script with pagination + row numbering + search by email + showing/total counts
+// Full Accounts page script with pagination + row numbering + search + working/not working filter + top stats card
 
 (function () {
   var state = {
@@ -7,7 +7,8 @@
     limit: 50,
     total: 0,
     pages: 1,
-    q: "", // search query
+    q: "",
+    health: "all", // all | working | not_working
   };
 
   var searchDebounceTimer = null;
@@ -37,19 +38,35 @@
 
     if (searchInput) {
       searchInput.addEventListener("input", function () {
-        // debounce to avoid spamming API
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+
         searchDebounceTimer = setTimeout(function () {
           state.q = (searchInput.value || "").trim();
-          loadAccounts(1); // reset to page 1 on new search
+          // reset pagination when search changes
+          loadAccounts(1);
         }, 250);
       });
     }
 
+    // Health filter dropdown
+    var healthSelect = document.getElementById("accounts-health-filter");
+    if (healthSelect) {
+      healthSelect.addEventListener("change", function () {
+        state.health = this.value || "all";
+        // reset pagination when filter changes
+        loadAccounts(1);
+      });
+    }
+
+    // Clear button
     if (clearBtn) {
       clearBtn.addEventListener("click", function () {
         state.q = "";
+        state.health = "all";
+
         if (searchInput) searchInput.value = "";
+        if (healthSelect) healthSelect.value = "all";
+
         loadAccounts(1);
       });
     }
@@ -62,8 +79,12 @@
   });
 
   function ensurePaginationContainer() {
-    var card = document.querySelector(".card");
-    if (!card) return;
+    var card = document.querySelector(".card"); // first .card is stats card if you added it
+    // We want pagination under the TABLE card, not stats card.
+    // So pick the LAST .card (table card)
+    var cards = document.querySelectorAll(".card");
+    if (!cards || cards.length === 0) return;
+    var tableCard = cards[cards.length - 1];
 
     if (document.getElementById("accounts-pagination")) return;
 
@@ -77,8 +98,6 @@
     pagination.style.gap = "12px";
     pagination.style.flexWrap = "wrap";
 
-    // LEFT: counts (shown & total)
-    // RIGHT: controls (prev/next/page buttons/limit)
     pagination.innerHTML =
       '<div style="display:flex; flex-direction:column; gap:4px;">' +
       '  <div id="accounts-pagination-info" class="text-sm text-gray-500">Loading...</div>' +
@@ -96,7 +115,7 @@
       "  </select>" +
       "</div>";
 
-    card.appendChild(pagination);
+    tableCard.appendChild(pagination);
 
     document
       .getElementById("accounts-prev-btn")
@@ -131,6 +150,21 @@
     return parts.length ? "?" + parts.join("&") : "";
   }
 
+  function setTopStats(currentPageCount) {
+    var totalEl = document.getElementById("accounts-total-top");
+    var showingEl = document.getElementById("accounts-showing-top");
+    var shownNowEl = document.getElementById("accounts-shown-now-top");
+
+    if (!totalEl || !showingEl || !shownNowEl) return;
+
+    var from = state.total === 0 ? 0 : (state.page - 1) * state.limit + 1;
+    var to = Math.min(state.page * state.limit, state.total);
+
+    totalEl.textContent = String(state.total);
+    showingEl.textContent = from + "–" + to;
+    shownNowEl.textContent = String(currentPageCount || 0);
+  }
+
   function renderPagination(currentPageCount) {
     var infoEl = document.getElementById("accounts-pagination-info");
     var shownEl = document.getElementById("accounts-pagination-shown");
@@ -140,9 +174,19 @@
 
     if (!infoEl || !shownEl || !prevBtn || !nextBtn || !btnWrap) return;
 
-    // "Showing X–Y of TOTAL"
     var from = state.total === 0 ? 0 : (state.page - 1) * state.limit + 1;
     var to = Math.min(state.page * state.limit, state.total);
+
+    var filterLabel =
+      state.health === "working"
+        ? "Working"
+        : state.health === "not_working"
+          ? "Not working"
+          : "All";
+
+    var extra = [];
+    if (state.q) extra.push('search "' + state.q + '"');
+    if (state.health !== "all") extra.push("filter " + filterLabel);
 
     infoEl.textContent =
       "Showing " +
@@ -151,15 +195,13 @@
       to +
       " of " +
       state.total +
-      (state.q ? ' (filtered by "' + state.q + '")' : "");
+      (extra.length ? " (" + extra.join(", ") + ")" : "");
 
-    // "Shown now: N"
     shownEl.textContent = "Shown now: " + (currentPageCount || 0);
 
     prevBtn.disabled = state.page <= 1;
     nextBtn.disabled = state.page >= state.pages;
 
-    // Page buttons (max 7)
     btnWrap.innerHTML = "";
 
     var maxButtons = 7;
@@ -221,11 +263,12 @@
           "</tr>";
       }
 
+      // Build query
       var qs = buildQueryString({
         page: state.page,
         limit: state.limit,
         q: state.q,
-        // status: "CONNECTED" // if you add filter UI later
+        health: state.health, // NEW
       });
 
       var response = await Api.get("/accounts" + qs);
@@ -329,45 +372,43 @@
           .join("");
 
         setupAccountEventListeners();
+
+        // Top stats + footer
+        setTopStats(accounts.length);
         renderPagination(accounts.length);
       } else {
+        // No results
         tbody.innerHTML =
           "<tr>" +
           '<td colspan="7">' +
           '<div class="empty-state">' +
           '<div class="empty-state-icon">📧</div>' +
-          '<div class="empty-state-title">' +
-          (state.q
-            ? "No accounts match your search"
-            : "No accounts connected yet") +
-          "</div>" +
+          '<div class="empty-state-title">No accounts found</div>' +
           '<p class="text-gray-500 mb-4">' +
-          (state.q
-            ? 'Try a different email keyword or click "Clear".'
-            : "Connect your first Outlook or Microsoft 365 account to start collecting emails.") +
+          "Try changing search or filter." +
           "</p>" +
-          (!state.q
-            ? '<button id="empty-connect-btn" class="btn btn-primary">Connect Account</button>'
-            : '<button id="empty-clear-btn" class="btn btn-outline">Clear Search</button>') +
+          '<button id="empty-clear-btn" class="btn btn-outline">Reset filters</button>' +
           "</div>" +
           "</td>" +
           "</tr>";
 
-        if (!state.q) {
-          document
-            .getElementById("empty-connect-btn")
-            .addEventListener("click", connectAccount);
-        } else {
-          document
-            .getElementById("empty-clear-btn")
-            .addEventListener("click", function () {
-              state.q = "";
-              var searchInput = document.getElementById("accounts-search");
-              if (searchInput) searchInput.value = "";
-              loadAccounts(1);
-            });
-        }
+        document
+          .getElementById("empty-clear-btn")
+          .addEventListener("click", function () {
+            state.q = "";
+            state.health = "all";
 
+            var searchInput = document.getElementById("accounts-search");
+            var healthSelect = document.getElementById(
+              "accounts-health-filter",
+            );
+            if (searchInput) searchInput.value = "";
+            if (healthSelect) healthSelect.value = "all";
+
+            loadAccounts(1);
+          });
+
+        setTopStats(0);
         renderPagination(0);
       }
     } catch (error) {
@@ -379,6 +420,7 @@
           '<td colspan="7" class="text-center text-gray-500">Failed to load accounts.</td>' +
           "</tr>";
       }
+      setTopStats(0);
       renderPagination(0);
     }
   }
@@ -441,7 +483,7 @@
             "Account Deleted",
             "<strong>" + email + "</strong> has been removed.",
             function () {
-              // If last item deleted on current page, go back one page (if possible)
+              // Adjust page after delete
               var newTotal = Math.max(state.total - 1, 0);
               var maxPageAfterDelete = Math.max(
                 Math.ceil(newTotal / state.limit),

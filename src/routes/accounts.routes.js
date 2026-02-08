@@ -71,7 +71,7 @@ router.get(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { status, q } = req.query;
+    const { status, q, health } = req.query;
     const page = Math.max(parseInt(req.query.page ?? "1", 10) || 1, 1);
     const limit = Math.min(
       Math.max(parseInt(req.query.limit ?? "50", 10) || 50, 1),
@@ -82,6 +82,11 @@ router.get(
     const where = {};
     if (status) {
       where.status = status;
+    }
+    if (health === "working") {
+      where.status = "CONNECTED";
+    } else if (health === "not_working") {
+      where.status = { not: "CONNECTED" };
     }
     if (q && q.trim() !== "") {
       where.email = {
