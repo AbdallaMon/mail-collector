@@ -22,9 +22,6 @@ const STEAM_ALLOWED_DOMAINS = parseCsvEnv(
 const STEAM_ALLOWED_SENDERS = parseCsvEnv(
   process.env.STEAM_ALLOWED_SENDERS,
 ).map((s) => s.toLowerCase());
-const STEAM_SUBJECT_KEYWORDS = parseCsvEnv(
-  process.env.STEAM_SUBJECT_KEYWORDS,
-).map((s) => s.toLowerCase());
 
 // Auth error codes that mean the account needs re-auth or is suspended
 const AUTH_ERROR_CODES = [
@@ -56,16 +53,13 @@ function isSteamMessage(msgPreview) {
   const fromAddress = (
     msgPreview?.from?.emailAddress?.address || ""
   ).toLowerCase();
-  const subject = (msgPreview?.subject || "").toLowerCase();
 
+  // 1. Check exact sender email
   if (STEAM_ALLOWED_SENDERS.includes(fromAddress)) return true;
 
+  // 2. Check sender domain
   const domain = fromAddress.split("@")[1] || "";
   if (domain && STEAM_ALLOWED_DOMAINS.includes(domain)) return true;
-
-  if (STEAM_SUBJECT_KEYWORDS.length) {
-    return STEAM_SUBJECT_KEYWORDS.some((k) => subject.includes(k));
-  }
 
   return false;
 }
