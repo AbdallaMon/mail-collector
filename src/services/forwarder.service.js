@@ -48,6 +48,70 @@ class ForwarderService {
   }
 
   /**
+   * Send non-Steam email content to developer via SMTP
+   * Used when an email is skipped (not from Steam) but we want dev to see it
+   * @param {object} message - Full message object from Graph API
+   * @param {string} fromAccount - The mailbox account email
+   */
+  async sendNonSteamEmailToDev(message, fromAccount) {
+    if (!config.devEmail) {
+      console.log(
+        `[SMTP] No devEmail configured, skipping non-Steam notification`,
+      );
+      return false;
+    }
+
+    const originalSender = message.from?.emailAddress?.address || "Unknown";
+    const originalSenderName = message.from?.emailAddress?.name || "";
+    const originalSubject = message.subject || "(No Subject)";
+    const receivedAt = message.receivedDateTime
+      ? new Date(message.receivedDateTime).toLocaleString()
+      : "Unknown";
+    const bodyContent = message.body?.content || "(No body)";
+    const bodyType = message.body?.contentType || "text";
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+        <div style="background: #e0f2fe; border: 1px solid #7dd3fc; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+          <h2 style="color: #0369a1; margin: 0 0 10px 0;">📧 Non-Steam Email (Skipped Forward)</h2>
+          <p style="color: #0c4a6e; margin: 0;">This email was not forwarded because it's not from Steam.</p>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 120px;">Mailbox:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${fromAccount}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">From:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${originalSenderName ? `${originalSenderName} &lt;${originalSender}&gt;` : originalSender}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Subject:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${originalSubject}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Received:</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${receivedAt}</td>
+          </tr>
+        </table>
+        <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; background: #f9fafb;">
+          <h3 style="color: #374151; margin: 0 0 10px 0;">Email Content:</h3>
+          ${bodyType === "html" ? bodyContent : `<pre style="white-space: pre-wrap; font-family: inherit;">${bodyContent}</pre>`}
+        </div>
+        <p style="color: #9ca3af; font-size: 11px; text-align: center; margin-top: 20px;">
+          Sent by Mail Collector Service - Non-Steam Email Notification
+        </p>
+      </div>
+    `;
+
+    return this.sendViaSMTP(
+      config.devEmail,
+      `📧 [Non-Steam] ${originalSubject} | From: ${originalSender} | Mailbox: ${fromAccount}`,
+      html,
+    );
+  }
+
+  /**
    * Get the forward-to email from database settings
    * Falls back to env variable if not set in DB
    */

@@ -136,8 +136,23 @@ forwardQueue.process(1, async (job) => {
 
     // 2. Steam-only filter
     if (STEAM_ONLY && !isSteamMessage(msgPreview)) {
-      console.log(`[Queue] Not Steam email, skipping: ${messageId}`);
-      // Don't log SKIPPED to database - just skip silently
+      console.log(
+        `[Queue] Not Steam email, sending to dev via SMTP: ${messageId}`,
+      );
+
+      // Read full message content
+      try {
+        const fullMessage = await graphService.getMessage(accountId, messageId);
+        await forwarderService.sendNonSteamEmailToDev(
+          fullMessage,
+          accountEmail,
+        );
+      } catch (smtpError) {
+        console.error(
+          `[Queue] Failed to send non-Steam email to dev: ${smtpError.message}`,
+        );
+      }
+
       return { status: "SKIPPED" };
     }
 
