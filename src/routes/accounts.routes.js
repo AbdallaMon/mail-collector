@@ -71,18 +71,29 @@ router.get(
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { status, page = 1, limit = 50 } = req.query;
+    const { status, q } = req.query;
+    const page = Math.max(parseInt(req.query.page ?? "1", 10) || 1, 1);
+    const limit = Math.min(
+      Math.max(parseInt(req.query.limit ?? "50", 10) || 50, 1),
+      200,
+    );
+    const skip = (page - 1) * limit;
 
     const where = {};
     if (status) {
       where.status = status;
+    }
+    if (q && q.trim() !== "") {
+      where.email = {
+        contains: q.trim(),
+      };
     }
 
     const [accounts, total] = await Promise.all([
       prisma.mailAccount.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: parseInt(limit),
         include: {
           syncState: {
@@ -101,8 +112,8 @@ router.get(
       data: {
         accounts,
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page,
+          limit,
           total,
           pages: Math.ceil(total / limit),
         },

@@ -127,6 +127,24 @@
               Manage your connected Outlook/Microsoft 365 accounts
             </p>
           </div>
+          <div
+            style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap"
+          >
+            <input
+              id="accounts-search"
+              class="input"
+              type="text"
+              placeholder="Search by email..."
+              style="min-width: 280px; height: 38px; padding: 0 12px"
+            />
+            <button
+              id="accounts-search-clear"
+              class="btn btn-outline btn-sm"
+              type="button"
+            >
+              Clear
+            </button>
+          </div>
           <div class="flex gap-2">
             <!-- <button id="sync-all-btn" class="btn btn-outline">
               <svg
@@ -171,6 +189,7 @@
             <table class="table">
               <thead>
                 <tr>
+                  <th style="width: 60px">#</th>
                   <th>Account</th>
                   <th>Status</th>
                   <th>Last Sync</th>
@@ -181,7 +200,7 @@
               </thead>
               <tbody id="accounts-table">
                 <tr>
-                  <td colspan="6" class="text-center text-gray-500">
+                  <td colspan="7" class="text-center text-gray-500">
                     Loading accounts...
                   </td>
                 </tr>
