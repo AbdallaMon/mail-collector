@@ -413,7 +413,20 @@ class ForwarderService {
               🔐 Reconnect Account
             </a>
           </div>
-          ${isQuotaError ? '<p style="color: #b45309; font-size: 13px; text-align: center; font-weight: 600;">⚠️ Make sure you verify your account on Outlook FIRST before clicking Reconnect!</p>' : ""}
+          ${
+            isQuotaError
+              ? `<div style="background: #fef9c3; border: 1px solid #facc15; border-radius: 8px; padding: 15px; margin: 15px 0; text-align: left;">
+            <p style="color: #854d0e; font-weight: 600; margin: 0 0 10px 0;">📋 Steps to fix:</p>
+            <ol style="color: #854d0e; margin: 0; padding-left: 20px; line-height: 1.8;">
+              <li>Open <a href="https://outlook.live.com" style="color: #2563eb;">outlook.live.com</a> and sign in with <strong>${accountEmail}</strong></li>
+              <li>Try to <strong>forward any email</strong> manually from your inbox</li>
+              <li>Outlook will ask you to verify — complete the verification</li>
+              <li>Check your inbox for a verification email and confirm it</li>
+              <li>Come back and click <strong>Reconnect Account</strong> above</li>
+            </ol>
+          </div>`
+              : ""
+          }
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
             This notification was sent by Mail Collector Service via SMTP
           </p>
