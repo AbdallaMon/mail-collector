@@ -9,6 +9,8 @@ class WebhookService {
     this.graphBaseUrl = config.microsoft.graphBaseUrl;
     // ✅ نفس القيمة بتاعتك (مش هنغير المدة)
     this.subscriptionLifetimeMinutes = 4230;
+    // Track unknown subscription IDs to only log once
+    this._unknownSubIds = new Set();
   }
 
   generateClientState() {
@@ -26,6 +28,9 @@ class WebhookService {
   async createSubscription(accountId) {
     const accessToken =
       await microsoftAuthService.getValidAccessToken(accountId);
+
+    // Delete old subscription from Microsoft before creating new one
+    await this._deleteOldSubscriptionFromMicrosoft(accountId, accessToken);
 
     const clientState = this.generateClientState();
     const expirationDateTime = this.getExpirationDateTime();
@@ -74,6 +79,43 @@ class WebhookService {
 
     console.log(`[Webhook] Subscription created for account ${accountId}`);
     return subscription;
+  }
+
+  /**
+   * Delete old subscription from Microsoft to prevent stale notifications
+   * Silently ignores errors (subscription may already be expired/deleted)
+   */
+  async _deleteOldSubscriptionFromMicrosoft(accountId, accessToken) {
+    try {
+      const existing = await prisma.webhookSubscription.findUnique({
+        where: { accountId },
+        select: { subscriptionId: true },
+      });
+
+      if (!existing) return;
+
+      console.log(
+        `[Webhook] Deleting old subscription ${existing.subscriptionId} from Microsoft...`,
+      );
+
+      await axios.delete(
+        `${this.graphBaseUrl}/subscriptions/${existing.subscriptionId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      console.log(
+        `[Webhook] Old subscription ${existing.subscriptionId} deleted from Microsoft`,
+      );
+    } catch (error) {
+      // Ignore 404 (already gone) or any other error — we're creating a new one anyway
+      console.log(
+        `[Webhook] Could not delete old subscription (${error?.response?.status || error.message}), continuing...`,
+      );
+    }
   }
 
   async renewSubscription(accountId) {
@@ -161,7 +203,13 @@ class WebhookService {
     });
 
     if (!subscription) {
-      console.warn(`[Webhook] Unknown subscription: ${subscriptionId}`);
+      // Only log once per unknown subscription ID to reduce noise
+      if (!this._unknownSubIds.has(subscriptionId)) {
+        this._unknownSubIds.add(subscriptionId);
+        console.warn(
+          `[Webhook] Unknown subscription: ${subscriptionId} (will not log again)`,
+        );
+      }
       return null;
     }
 
