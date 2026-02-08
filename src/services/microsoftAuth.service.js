@@ -84,7 +84,7 @@ class MicrosoftAuthService {
         client_secret: this.clientSecret,
         refresh_token: refreshToken,
         grant_type: "refresh_token",
-        scope: this.scopes.join(" "),
+        // scope: this.scopes.join(" "),
       });
 
       const response = await axios.post(this.tokenUrl, params.toString(), {
