@@ -46,16 +46,16 @@ async function loadConfig() {
         response.data.forwardTo ||
         response.data.forwardToEmail ||
         "Not configured";
-      document.getElementById("forward-email-display").textContent =
-        forwardEmail;
+      // document.getElementById("forward-email-display").textContent =
+      //   forwardEmail;
       document.getElementById("forward-to-email").value =
         forwardEmail !== "Not configured" ? forwardEmail : "";
-      document.getElementById("forward-method-display").textContent =
-        response.data.forwardMethod || "Graph API";
-      document.getElementById("sync-interval-display").textContent = response
-        .data.syncInterval
-        ? response.data.syncInterval + " seconds"
-        : "2 minutes";
+      // document.getElementById("forward-method-display").textContent =
+      //   response.data.forwardMethod || "Graph API";
+      // document.getElementById("sync-interval-display").textContent = response
+      //   .data.syncInterval
+      //   ? response.data.syncInterval + " seconds"
+      //   : "2 minutes";
     }
   } catch (error) {
     console.error("Failed to load config:", error);
