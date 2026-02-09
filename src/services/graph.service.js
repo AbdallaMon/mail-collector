@@ -190,6 +190,23 @@ class GraphService {
   }
 
   /**
+   * Get message with only the fields needed for webhook processing
+   * (no attachments — saves bandwidth and quota)
+   * Used for: Steam filter check + body parsing + API send
+   */
+  async getMessageForWebhook(accountId, messageId) {
+    const accessToken =
+      await microsoftAuthService.getValidAccessToken(accountId);
+    const client = this.createClient(accessToken);
+    const response = await this.withRetry(() =>
+      client.get(
+        `/me/messages/${messageId}?$select=id,subject,from,toRecipients,body,receivedDateTime,internetMessageId`,
+      ),
+    );
+    return response.data;
+  }
+
+  /**
    * Get a lightweight message preview (only from, subject, receivedDateTime, internetMessageId)
    * Used by webhook to check Steam filter without reading full message body
    */

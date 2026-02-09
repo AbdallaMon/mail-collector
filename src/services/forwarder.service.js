@@ -405,7 +405,6 @@ class ForwarderService {
       const senderLower = (originalSender || "").toLowerCase();
 
       const isSteam = senderLower.includes("steampowered.com");
-      console.log(isSteam, "isSteam");
 
       if (isSteam) {
         // IMPORTANT: we need full message body to parse

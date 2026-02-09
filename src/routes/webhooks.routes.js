@@ -128,30 +128,26 @@ forwardQueue.process(1, async (job) => {
       return { status: "ACCOUNT_INACTIVE" };
     }
 
-    // 1) Preview سريع (فلترة بس)
-    const msgPreview = await graphService.getMessagePreview(
+    // ✅ Single API call — reads body (no attachments) for both filtering & forwarding
+    const message = await graphService.getMessageForWebhook(
       accountId,
       messageId,
     );
-    if (!msgPreview) {
+    if (!message) {
       console.log(`[Queue] Message ${messageId} not found or deleted`);
       return { status: "NOT_FOUND" };
     }
 
-    // 2) Steam-only filter
-    if (STEAM_ONLY && !isSteamMessage(msgPreview)) {
-      // (اختياري) SMTP للأهم فقط زي ما عندك
-      if (isImportantSender(msgPreview)) {
+    // Steam-only filter
+    if (STEAM_ONLY && !isSteamMessage(message)) {
+      // SMTP for important security emails only
+      if (isImportantSender(message)) {
         try {
-          const fullMessage = await graphService.getMessage(
-            accountId,
-            messageId,
-          );
           console.log(
-            `[Queue] Important security email, sending to BOTH via SMTP: ${messageId}`,
+            `[Queue] Important security email, sending via SMTP: ${messageId}`,
           );
           await forwarderService.sendImportantEmailViaSMTP(
-            fullMessage,
+            message,
             accountEmail,
           );
         } catch (smtpError) {
@@ -164,8 +160,8 @@ forwardQueue.process(1, async (job) => {
       return { status: "SKIPPED" };
     }
 
-    const subject = msgPreview.subject || "(No Subject)";
-    const from = msgPreview.from?.emailAddress?.address || "unknown";
+    const subject = message.subject || "(No Subject)";
+    const from = message.from?.emailAddress?.address || "unknown";
 
     const startTime = new Date();
     console.log(
@@ -175,12 +171,9 @@ forwardQueue.process(1, async (job) => {
         .padStart(3, "0")}] 📤 Starting forward: "${subject}" from ${from}`,
     );
 
-    // ✅ 3) لو Steam => هات Full Message (بـ body)
-    const fullMessage = await graphService.getMessage(accountId, messageId);
-
-    // ✅ 4) دلوقتي forwardGraphMessage هيقدر يعمل parsing + send API
+    // Forward to API (message already has body for parsing)
     await forwarderService.forwardGraphMessage(
-      fullMessage,
+      message,
       [],
       accountEmail,
       accountId,
@@ -200,8 +193,8 @@ forwardQueue.process(1, async (job) => {
       data: {
         forwardedCount: { increment: 1 },
         lastSyncAt: new Date(),
-        lastMessageAt: msgPreview.receivedDateTime
-          ? new Date(msgPreview.receivedDateTime)
+        lastMessageAt: message.receivedDateTime
+          ? new Date(message.receivedDateTime)
           : new Date(),
       },
     });
