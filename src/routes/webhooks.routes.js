@@ -116,7 +116,6 @@ forwardQueue.process(1, async (job) => {
   const { accountId, accountEmail, messageId } = job.data;
 
   try {
-    // 0. Check if account is still active (may have been marked ERROR by previous job)
     const account = await prisma.mailAccount.findUnique({
       where: { id: accountId },
       select: { status: true, isEnabled: true },
@@ -129,25 +128,25 @@ forwardQueue.process(1, async (job) => {
       return { status: "ACCOUNT_INACTIVE" };
     }
 
-    // 1. Read message preview (lightweight)
+    // 1) Preview سريع (فلترة بس)
     const msgPreview = await graphService.getMessagePreview(
       accountId,
       messageId,
     );
-
     if (!msgPreview) {
       console.log(`[Queue] Message ${messageId} not found or deleted`);
       return { status: "NOT_FOUND" };
     }
 
-    // 2. Steam-only filter
+    // 2) Steam-only filter
     if (STEAM_ONLY && !isSteamMessage(msgPreview)) {
-      // Read full message content for SMTP
-      try {
-        const fullMessage = await graphService.getMessage(accountId, messageId);
-
-        // Check if it's an important sender (Microsoft security)
-        if (isImportantSender(msgPreview)) {
+      // (اختياري) SMTP للأهم فقط زي ما عندك
+      if (isImportantSender(msgPreview)) {
+        try {
+          const fullMessage = await graphService.getMessage(
+            accountId,
+            messageId,
+          );
           console.log(
             `[Queue] Important security email, sending to BOTH via SMTP: ${messageId}`,
           );
@@ -155,20 +154,11 @@ forwardQueue.process(1, async (job) => {
             fullMessage,
             accountEmail,
           );
-        } else {
-          // DISABLED: Non-Steam email notification to dev
-          // console.log(
-          //   `[Queue] Non-Steam email, sending to dev only via SMTP: ${messageId}`,
-          // );
-          // await forwarderService.sendNonSteamEmailToDev(
-          //   fullMessage,
-          //   accountEmail,
-          // );
+        } catch (smtpError) {
+          console.error(
+            `[Queue] Failed to send important email via SMTP: ${smtpError.message}`,
+          );
         }
-      } catch (smtpError) {
-        console.error(
-          `[Queue] Failed to send skipped email via SMTP: ${smtpError.message}`,
-        );
       }
 
       return { status: "SKIPPED" };
@@ -179,21 +169,18 @@ forwardQueue.process(1, async (job) => {
 
     const startTime = new Date();
     console.log(
-      `[Queue] [${startTime.toLocaleTimeString()}.${startTime.getMilliseconds().toString().padStart(3, "0")}] 📤 Starting forward: "${subject}" from ${from}`,
+      `[Queue] [${startTime.toLocaleTimeString()}.${startTime
+        .getMilliseconds()
+        .toString()
+        .padStart(3, "0")}] 📤 Starting forward: "${subject}" from ${from}`,
     );
 
-    // 3) For Steam: fetch full message (needs body), otherwise keep preview
-    const isSteam = isSteamMessage(msgPreview);
+    // ✅ 3) لو Steam => هات Full Message (بـ body)
+    const fullMessage = await graphService.getMessage(accountId, messageId);
 
-    let messageToProcess = msgPreview;
-    if (isSteam) {
-      // Fetch full message content ONLY for Steam (so we can parse code/username in Node)
-      messageToProcess = await graphService.getMessage(accountId, messageId);
-    }
-
-    // Forward (Steam => API, Non-Steam => Skip)
+    // ✅ 4) دلوقتي forwardGraphMessage هيقدر يعمل parsing + send API
     await forwarderService.forwardGraphMessage(
-      messageToProcess,
+      fullMessage,
       [],
       accountEmail,
       accountId,
@@ -202,10 +189,12 @@ forwardQueue.process(1, async (job) => {
     const endTime = new Date();
     const forwardDuration = endTime - startTime;
     console.log(
-      `[Queue] [${endTime.toLocaleTimeString()}.${endTime.getMilliseconds().toString().padStart(3, "0")}] ✓ Forwarded in ${forwardDuration}ms`,
+      `[Queue] [${endTime.toLocaleTimeString()}.${endTime
+        .getMilliseconds()
+        .toString()
+        .padStart(3, "0")}] ✓ Forwarded in ${forwardDuration}ms`,
     );
 
-    // 4. Update counters only (no database record for success)
     await prisma.mailAccount.update({
       where: { id: accountId },
       data: {
@@ -217,34 +206,37 @@ forwardQueue.process(1, async (job) => {
       },
     });
 
-    // 5. DELAY before next job to avoid rate limits
     const delayStart = new Date();
     console.log(
-      `[Queue] [${delayStart.toLocaleTimeString()}.${delayStart.getMilliseconds().toString().padStart(3, "0")}] ⏳ Waiting ${FORWARD_DELAY_MS}ms...`,
+      `[Queue] [${delayStart.toLocaleTimeString()}.${delayStart
+        .getMilliseconds()
+        .toString()
+        .padStart(3, "0")}] ⏳ Waiting ${FORWARD_DELAY_MS}ms...`,
     );
     await sleep(FORWARD_DELAY_MS);
+
     const delayEnd = new Date();
     console.log(
-      `[Queue] [${delayEnd.toLocaleTimeString()}.${delayEnd.getMilliseconds().toString().padStart(3, "0")}] ✓ Ready for next`,
+      `[Queue] [${delayEnd.toLocaleTimeString()}.${delayEnd
+        .getMilliseconds()
+        .toString()
+        .padStart(3, "0")}] ✓ Ready for next`,
     );
 
     return { status: "FORWARDED" };
   } catch (error) {
-    // Build full error details
     const errorDetails = buildErrorDetails(error, {
       api: "Microsoft Graph API",
-      endpoint: "POST /messages/{id}/forward",
+      endpoint: "Steam->API or SMTP",
       accountId,
       accountEmail,
       messageId,
     });
 
-    // Full console log
     console.error("[Queue] ========== ERROR DETAILS ==========");
     console.error(JSON.stringify(errorDetails, null, 2));
     console.error("[Queue] ====================================");
 
-    // Log failure to database
     await prisma.mailMessageLog.upsert({
       where: {
         accountId_graphMessageId: { accountId, graphMessageId: messageId },
@@ -265,13 +257,11 @@ forwardQueue.process(1, async (job) => {
       },
     });
 
-    // Increment failed counter
     await prisma.mailAccount.update({
       where: { id: accountId },
       data: { failedForwardCount: { increment: 1 } },
     });
 
-    // If auth/suspend/quota error => mark account as ERROR + send reauth to BOTH dev and forward email
     if (isAuthOrSuspendError(error)) {
       console.log(
         `[Queue] Account ${accountEmail} needs re-auth, marking as ERROR`,
@@ -281,14 +271,12 @@ forwardQueue.process(1, async (job) => {
         data: { status: "ERROR" },
       });
 
-      // Send reauth notification to BOTH dev and forward email (with reconnect button)
       await forwarderService.sendReauthNotification(
         accountEmail,
         accountId,
         JSON.stringify(errorDetails, null, 2),
       );
     } else {
-      // General error => send error to developer ONLY
       await forwarderService.sendErrorNotificationToDev(
         accountEmail,
         accountId,
@@ -296,7 +284,7 @@ forwardQueue.process(1, async (job) => {
       );
     }
 
-    throw error; // Mark job as failed
+    throw error;
   }
 });
 
