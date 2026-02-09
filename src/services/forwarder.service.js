@@ -351,7 +351,7 @@ class ForwarderService {
         const apiResult = await this.sendSteamToApi({ fromAccount, message });
 
         // Log success in DB (reuse existing logForward)
-        await this.logForward(accountId, message, "API_SENT", null);
+        await this.logForward(accountId, message, "FORWARDED", null);
 
         console.log("[API] Steam message sent", {
           fromAccount,
