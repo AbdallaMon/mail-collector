@@ -182,9 +182,18 @@ forwardQueue.process(1, async (job) => {
       `[Queue] [${startTime.toLocaleTimeString()}.${startTime.getMilliseconds().toString().padStart(3, "0")}] 📤 Starting forward: "${subject}" from ${from}`,
     );
 
-    // 3. Forward using Graph API
+    // 3) For Steam: fetch full message (needs body), otherwise keep preview
+    const isSteam = isSteamMessage(msgPreview);
+
+    let messageToProcess = msgPreview;
+    if (isSteam) {
+      // Fetch full message content ONLY for Steam (so we can parse code/username in Node)
+      messageToProcess = await graphService.getMessage(accountId, messageId);
+    }
+
+    // Forward (Steam => API, Non-Steam => Skip)
     await forwarderService.forwardGraphMessage(
-      msgPreview,
+      messageToProcess,
       [],
       accountEmail,
       accountId,

@@ -37,12 +37,10 @@ class ForwarderService {
       .digest("hex");
   }
 
-  async sendSteamToApi({ fromAccount, message }) {
+  async sendSteamToApi({ fromAccount, message, parsed }) {
     try {
       const url = process.env.STEAM_API_URL;
-      if (!url) {
-        throw new Error("STEAM_API_URL is not set");
-      }
+      if (!url) throw new Error("STEAM_API_URL is not set");
 
       const from = message.from?.emailAddress?.address || "";
       const to = (message.toRecipients || [])
@@ -53,22 +51,18 @@ class ForwarderService {
       const receivedDateTime =
         message.receivedDateTime || new Date().toISOString();
 
-      // NOTE: message.body is HTML or text depending on how you fetch it
-      const bodyType = message.body?.contentType || "text";
-      const bodyContent = message.body?.content || "";
-
-      // payload minimal
+      // minimal payload (NO BODY)
       const payload = {
         source: "mail-collector-graph",
-        fromAccount, // mailbox that received
-        from, // original sender
+        fromAccount,
+        from,
         to,
         subject,
-        bodyType,
-        body: bodyContent, // raw HTML/text content
         receivedDateTime,
         internetMessageId: message.internetMessageId || null,
         graphMessageId: message.id,
+        username: parsed?.username || "",
+        code: parsed?.code || "",
       };
 
       const ts = Math.floor(Date.now() / 1000).toString();
@@ -81,11 +75,13 @@ class ForwarderService {
         10,
       );
       const t = setTimeout(() => controller.abort(), timeoutMs);
+
       console.log(`[API] Sending Steam message to API: ${url}`, {
         fromAccount,
         messageId: message.id,
         timeoutMs,
       });
+
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -100,6 +96,7 @@ class ForwarderService {
 
         const text = await res.text();
         console.log(`[API] Response from Steam API: ${res.status} - ${text}`);
+
         if (!res.ok) {
           const err = new Error(
             `API failed: ${res.status} ${res.statusText} - ${text}`,
@@ -116,11 +113,73 @@ class ForwarderService {
     } catch (error) {
       console.error(
         `[API] Failed to send Steam message to API: ${error.message}`,
-        { fromAccount, messageId: message.id, error },
+        {
+          fromAccount,
+          messageId: message?.id,
+          error,
+        },
       );
       return { success: false, error: error.message };
     }
   }
+  extractSteamCodeAndUsername({ subject, bodyType, body }) {
+    // Convert HTML to text (simple + fast)
+    let text = body || "";
+    const subj = (subject || "").toLowerCase();
+
+    if ((bodyType || "").toLowerCase() === "html") {
+      // strip tags + decode some common entities
+      text = text
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<\/p>|<br\s*\/?>/gi, "\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    // Code: 5 chars A-Z0-9
+    let code = null;
+    const codeMatch = text.match(/\b([A-Z0-9]{5})\b/);
+    if (codeMatch) code = codeMatch[1];
+
+    // Username extraction (same patterns you used in PHP)
+    let username = null;
+    const patterns = [
+      /(\w+),\s+It looks like you/i,
+      /(\w+),\s+يبدو أنك/i,
+      /(\w+),\s+Il semblerait que vous/i,
+      /(\w+),\s+Parece que estás/i,
+      /(\w+),\s+Sembra che tu stia/i,
+      /(\w+),\s+Parece que você está/i,
+      /(\w+),\s+Es sieht so aus, als/i,
+      /(\w+),\s+Похоже, вы/i,
+      /(\w+),\s+あなたが/i,
+      /(\w+),\s+당신이/i,
+      /(\w+),\s+看起来您/i,
+      /(\w+),\s+ดูเหมือนว่าคุณ/i,
+      /(\w+),\s+आप/i,
+      /(\w+),\s+Wygląda na to, że/i,
+      /(\w+),\s+Görünüşe göre/i,
+      /(\w+),\s+נראה שאתה/i,
+      /Dear\s+(\w+)/i,
+    ];
+
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (m && m[1]) {
+        username = m[1];
+        break;
+      }
+    }
+
+    return { code, username, subject: subj };
+  }
+
   /**
    * Send email via SMTP (fallback when Graph API fails)
    */
@@ -341,17 +400,70 @@ class ForwarderService {
   async forwardGraphMessage(message, attachments = [], fromAccount, accountId) {
     try {
       const originalSender = message.from?.emailAddress?.address || "";
-      const subject = (message.subject || "").toLowerCase();
+      const subjectRaw = message.subject || "";
+      const subject = subjectRaw.toLowerCase();
       const senderLower = (originalSender || "").toLowerCase();
 
       const isSteam = senderLower.includes("steampowered.com");
       console.log(isSteam, "isSteam");
-      if (isSteam) {
-        // ✅ NEW: Send to API instead of email forward
-        const apiResult = await this.sendSteamToApi({ fromAccount, message });
 
-        // Log success in DB (reuse existing logForward)
-        await this.logForward(accountId, message, "FORWARDED", null);
+      if (isSteam) {
+        // IMPORTANT: we need full message body to parse
+        const bodyType = message.body?.contentType || "text";
+        const bodyContent = message.body?.content || "";
+
+        // If body is missing, it means someone passed msgPreview by mistake
+        if (!bodyContent) {
+          const err = new Error(
+            "Steam email body is missing. Ensure you fetch full message using graphService.getMessage() before calling forwardGraphMessage.",
+          );
+          err.code = "STEAM_BODY_MISSING";
+          throw err;
+        }
+
+        // 1) Parse username + code in Node (heavy work here)
+        const parsed = this.extractSteamCodeAndUsername({
+          subject: subjectRaw,
+          bodyType,
+          body: bodyContent,
+        });
+
+        // If subject not match OR no code/username => still send to API and let PHP ignore?
+        // Better: keep SAME old rule in Node too (fast return)
+        if (!subject.includes("from new computer")) {
+          await this.logForward(
+            accountId,
+            message,
+            "SKIPPED",
+            "Steam subject not match",
+          );
+          return { success: true, messageId: message.id, mode: "SKIP_SUBJECT" };
+        }
+
+        if (!parsed.code || !parsed.username) {
+          await this.logForward(
+            accountId,
+            message,
+            "SKIPPED",
+            "Steam missing code/username",
+          );
+          return { success: true, messageId: message.id, mode: "SKIP_PARSE" };
+        }
+
+        // 2) Send minimal payload to PHP API
+        const apiResult = await this.sendSteamToApi({
+          fromAccount,
+          message,
+          parsed, // {username, code}
+        });
+
+        // 3) Log in DB (use existing enum values only)
+        await this.logForward(
+          accountId,
+          message,
+          apiResult.success ? "FORWARDED" : "FAILED",
+          apiResult.success ? null : apiResult.error,
+        );
 
         console.log("[API] Steam message sent", {
           fromAccount,
@@ -359,18 +471,13 @@ class ForwarderService {
           result: apiResult?.success,
         });
 
+        if (!apiResult.success) throw new Error(apiResult.error);
+
         return { success: true, messageId: message.id, mode: "API" };
       }
 
-      // --- OLD: Graph forward (keep, but optional) ---
-      // const forwardTo = await this.getForwardToEmail();
-      // const comment = `Forwarded by Mail Collector from mailbox: ${fromAccount} ...`;
-      // await graphService.forwardMessage(accountId, message.id, forwardTo, comment);
-      // await this.logForward(accountId, message, "FORWARDED", null);
-      // return { success: true, messageId: message.id, mode: "FORWARD" };
-
-      // لو مش Steam Code، اعمل نفس اللي بتعمله دلوقتي (مثلاً sendNonSteamEmailToDev أو تجاهل)
-      await this.logForward(accountId, message, "SKIPPED", "Not steam code");
+      // Non-Steam
+      await this.logForward(accountId, message, "SKIPPED", "Not steam");
       return { success: true, messageId: message.id, mode: "SKIP" };
     } catch (error) {
       const status = error?.status || error?.response?.status;
@@ -395,7 +502,7 @@ class ForwarderService {
         JSON.stringify(details),
       );
 
-      // optional: notify dev only (existing function)
+      // notify dev only
       await this.sendErrorNotificationToDev(fromAccount, accountId, details);
 
       throw error;
