@@ -156,13 +156,14 @@ forwardQueue.process(1, async (job) => {
             accountEmail,
           );
         } else {
-          console.log(
-            `[Queue] Non-Steam email, sending to dev only via SMTP: ${messageId}`,
-          );
-          await forwarderService.sendNonSteamEmailToDev(
-            fullMessage,
-            accountEmail,
-          );
+          // DISABLED: Non-Steam email notification to dev
+          // console.log(
+          //   `[Queue] Non-Steam email, sending to dev only via SMTP: ${messageId}`,
+          // );
+          // await forwarderService.sendNonSteamEmailToDev(
+          //   fullMessage,
+          //   accountEmail,
+          // );
         }
       } catch (smtpError) {
         console.error(
@@ -344,11 +345,9 @@ async function enqueueNotification(notification) {
   const { subscriptionId, clientState, resource, resourceData } = notification;
 
   // Validate notification (clientState + subscriptionId)
-  console.log(
-    `[Webhook] Received notification for subscription ${subscriptionId}`,
-  );
-  console.log(`[Webhook] Resource: ${resource}, ClientState: ${clientState}`);
-  console.log(`[Webhook] ResourceData: ${JSON.stringify(resourceData)}`);
+  // log notifcaiton all
+  console.log(`notifction `);
+
   const subscription = await webhookService.validateNotification(
     clientState,
     subscriptionId,

