@@ -439,16 +439,6 @@ class ForwarderService {
           return { success: true, messageId: message.id, mode: "SKIP_SUBJECT" };
         }
 
-        if (!parsed.code || !parsed.username) {
-          await this.logForward(
-            accountId,
-            message,
-            "SKIPPED",
-            "Steam missing code/username",
-          );
-          return { success: true, messageId: message.id, mode: "SKIP_PARSE" };
-        }
-
         // 2) Send minimal payload to PHP API
         const apiResult = await this.sendSteamToApi({
           fromAccount,
@@ -457,12 +447,14 @@ class ForwarderService {
         });
 
         // 3) Log in DB (use existing enum values only)
-        await this.logForward(
-          accountId,
-          message,
-          apiResult.success ? "FORWARDED" : "FAILED",
-          apiResult.success ? null : apiResult.error,
-        );
+        if (!apiResult.success) {
+          await this.logForward(
+            accountId,
+            message,
+            apiResult.success ? "FORWARDED" : "FAILED",
+            apiResult.success ? null : apiResult.error,
+          );
+        }
 
         console.log("[API] Steam message sent", {
           fromAccount,
