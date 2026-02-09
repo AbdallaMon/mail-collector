@@ -38,71 +38,87 @@ class ForwarderService {
   }
 
   async sendSteamToApi({ fromAccount, message }) {
-    const url = process.env.STEAM_API_URL;
-    if (!url) {
-      throw new Error("STEAM_API_URL is not set");
-    }
-
-    const from = message.from?.emailAddress?.address || "";
-    const to = (message.toRecipients || [])
-      .map((r) => r.emailAddress?.address)
-      .filter(Boolean)
-      .join(", ");
-    const subject = message.subject || "";
-    const receivedDateTime =
-      message.receivedDateTime || new Date().toISOString();
-
-    // NOTE: message.body is HTML or text depending on how you fetch it
-    const bodyType = message.body?.contentType || "text";
-    const bodyContent = message.body?.content || "";
-
-    // payload minimal
-    const payload = {
-      source: "mail-collector-graph",
-      fromAccount, // mailbox that received
-      from, // original sender
-      to,
-      subject,
-      bodyType,
-      body: bodyContent, // raw HTML/text content
-      receivedDateTime,
-      internetMessageId: message.internetMessageId || null,
-      graphMessageId: message.id,
-    };
-
-    const ts = Math.floor(Date.now() / 1000).toString();
-    const bodyString = JSON.stringify(payload);
-    const sig = this.signApiPayload(ts, bodyString);
-
-    const controller = new AbortController();
-    const timeoutMs = parseInt(process.env.STEAM_API_TIMEOUT_MS || "5000", 10);
-    const t = setTimeout(() => controller.abort(), timeoutMs);
-
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Timestamp": ts,
-          "X-Signature": sig,
-        },
-        body: bodyString,
-        signal: controller.signal,
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        const err = new Error(
-          `API failed: ${res.status} ${res.statusText} - ${text}`,
-        );
-        err.status = res.status;
-        err.responseText = text;
-        throw err;
+      const url = process.env.STEAM_API_URL;
+      if (!url) {
+        throw new Error("STEAM_API_URL is not set");
       }
 
-      return { success: true, response: text };
-    } finally {
-      clearTimeout(t);
+      const from = message.from?.emailAddress?.address || "";
+      const to = (message.toRecipients || [])
+        .map((r) => r.emailAddress?.address)
+        .filter(Boolean)
+        .join(", ");
+      const subject = message.subject || "";
+      const receivedDateTime =
+        message.receivedDateTime || new Date().toISOString();
+
+      // NOTE: message.body is HTML or text depending on how you fetch it
+      const bodyType = message.body?.contentType || "text";
+      const bodyContent = message.body?.content || "";
+
+      // payload minimal
+      const payload = {
+        source: "mail-collector-graph",
+        fromAccount, // mailbox that received
+        from, // original sender
+        to,
+        subject,
+        bodyType,
+        body: bodyContent, // raw HTML/text content
+        receivedDateTime,
+        internetMessageId: message.internetMessageId || null,
+        graphMessageId: message.id,
+      };
+
+      const ts = Math.floor(Date.now() / 1000).toString();
+      const bodyString = JSON.stringify(payload);
+      const sig = this.signApiPayload(ts, bodyString);
+
+      const controller = new AbortController();
+      const timeoutMs = parseInt(
+        process.env.STEAM_API_TIMEOUT_MS || "5000",
+        10,
+      );
+      const t = setTimeout(() => controller.abort(), timeoutMs);
+      console.log(`[API] Sending Steam message to API: ${url}`, {
+        fromAccount,
+        messageId: message.id,
+        timeoutMs,
+      });
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Timestamp": ts,
+            "X-Signature": sig,
+          },
+          body: bodyString,
+          signal: controller.signal,
+        });
+
+        const text = await res.text();
+        console.log(`[API] Response from Steam API: ${res.status} - ${text}`);
+        if (!res.ok) {
+          const err = new Error(
+            `API failed: ${res.status} ${res.statusText} - ${text}`,
+          );
+          err.status = res.status;
+          err.responseText = text;
+          throw err;
+        }
+
+        return { success: true, response: text };
+      } finally {
+        clearTimeout(t);
+      }
+    } catch (error) {
+      console.error(
+        `[API] Failed to send Steam message to API: ${error.message}`,
+        { fromAccount, messageId: message.id, error },
+      );
+      return { success: false, error: error.message };
     }
   }
   /**
@@ -328,9 +344,8 @@ class ForwarderService {
       const subject = (message.subject || "").toLowerCase();
       const senderLower = (originalSender || "").toLowerCase();
 
-      const isSteam =
-        senderLower.includes("steampowered.com") || subject.includes("steam");
-
+      const isSteam = senderLower.includes("steampowered.com");
+      console.log(isSteam, "isSteam");
       if (isSteam) {
         // ✅ NEW: Send to API instead of email forward
         const apiResult = await this.sendSteamToApi({ fromAccount, message });
