@@ -9,12 +9,8 @@ const config = require("../config");
 class Encryption {
   constructor() {
     this.key = config.encryptionKey;
-    if (!this.key || this.key.length < 32) {
-      console.warn(
-        "WARNING: Encryption key is not set or too short. Using default key (NOT SECURE FOR PRODUCTION)",
-      );
-      this.key =
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    if (!this.key) {
+      throw new Error("Encryption key is not set in configuration");
     }
   }
 

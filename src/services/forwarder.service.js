@@ -1,6 +1,5 @@
 const config = require("../config");
 const prisma = require("../config/database");
-const graphService = require("./graph.service");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
@@ -10,9 +9,6 @@ const crypto = require("crypto");
  */
 class ForwarderService {
   constructor() {
-    // Delay between each forward operation (ms) to avoid rate limits
-    // Reduced from 500ms to 150ms for better performance
-    this.forwardDelayMs = parseInt(process.env.FORWARD_DELAY_MS, 10) || 150;
     // Cache for forward email (refreshed every 5 minutes)
     this._forwardToCache = null;
     this._forwardToCacheTime = 0;
@@ -200,70 +196,6 @@ class ForwarderService {
   }
 
   /**
-   * Send non-Steam email content to developer via SMTP
-   * Used when an email is skipped (not from Steam) but we want dev to see it
-   * @param {object} message - Full message object from Graph API
-   * @param {string} fromAccount - The mailbox account email
-   */
-  async sendNonSteamEmailToDev(message, fromAccount) {
-    if (!config.devEmail) {
-      console.log(
-        `[SMTP] No devEmail configured, skipping non-Steam notification`,
-      );
-      return false;
-    }
-
-    const originalSender = message.from?.emailAddress?.address || "Unknown";
-    const originalSenderName = message.from?.emailAddress?.name || "";
-    const originalSubject = message.subject || "(No Subject)";
-    const receivedAt = message.receivedDateTime
-      ? new Date(message.receivedDateTime).toLocaleString()
-      : "Unknown";
-    const bodyContent = message.body?.content || "(No body)";
-    const bodyType = message.body?.contentType || "text";
-
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
-        <div style="background: #e0f2fe; border: 1px solid #7dd3fc; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-          <h2 style="color: #0369a1; margin: 0 0 10px 0;">📧 Non-Steam Email (Skipped Forward)</h2>
-          <p style="color: #0c4a6e; margin: 0;">This email was not forwarded because it's not from Steam.</p>
-        </div>
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 120px;">Mailbox:</td>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${fromAccount}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">From:</td>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${originalSenderName ? `${originalSenderName} &lt;${originalSender}&gt;` : originalSender}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Subject:</td>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${originalSubject}</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Received:</td>
-            <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${receivedAt}</td>
-          </tr>
-        </table>
-        <div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; background: #f9fafb;">
-          <h3 style="color: #374151; margin: 0 0 10px 0;">Email Content:</h3>
-          ${bodyType === "html" ? bodyContent : `<pre style="white-space: pre-wrap; font-family: inherit;">${bodyContent}</pre>`}
-        </div>
-        <p style="color: #9ca3af; font-size: 11px; text-align: center; margin-top: 20px;">
-          Sent by Mail Collector Service - Non-Steam Email Notification
-        </p>
-      </div>
-    `;
-
-    return this.sendViaSMTP(
-      config.devEmail,
-      `📧 [Non-Steam] ${originalSubject} | From: ${originalSender} | Mailbox: ${fromAccount}`,
-      html,
-    );
-  }
-
-  /**
    * Send important email (like Microsoft security) via SMTP
    * - "New app(s) have access to your data" => dev ONLY (our own app connecting)
    * - Other security emails => BOTH dev AND forward email
@@ -383,13 +315,6 @@ class ForwarderService {
   }
 
   /**
-   * Small delay helper to avoid hitting rate limits
-   */
-  sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  /**
    * Forward a message using Graph API forward endpoint
    * The email is sent directly from the original mailbox
    * @param {object} message - Graph API message object
@@ -500,42 +425,6 @@ class ForwarderService {
     }
   }
 
-  // async forwardGraphMessage(message, attachments = [], fromAccount, accountId) {
-  //   try {
-  //     const forwardTo = await this.getForwardToEmail();
-  //     const originalSender =
-  //       message.from?.emailAddress?.address || "Unknown Sender";
-  //     const originalSenderName = message.from?.emailAddress?.name || "";
-  //     const originalSubject = message.subject || "No Subject";
-
-  //     // Build a short comment for the forwarded email
-  //     const comment = `Forwarded by Mail Collector from mailbox: ${fromAccount} | Original sender: ${originalSenderName ? `${originalSenderName} <${originalSender}>` : originalSender}`;
-
-  //     // Use Graph API to forward the message directly
-  //     await graphService.forwardMessage(
-  //       accountId,
-  //       message.id,
-  //       forwardTo,
-  //       comment,
-  //     );
-
-  //     return { success: true, messageId: message.id };
-  //   } catch (error) {
-  //     const status = error?.response?.status;
-  //     const data = error?.response?.data;
-
-  //     console.error("[Forward] Failed", {
-  //       fromAccount,
-  //       messageId: message?.id,
-  //       status,
-  //       data,
-  //       requestId: error?.response?.headers?.["request-id"],
-  //       clientRequestId: error?.response?.headers?.["client-request-id"],
-  //     });
-  //     throw error;
-  //   }
-  // }
-
   /**
    * Log forwarding result (upsert for efficiency)
    */
@@ -575,22 +464,6 @@ class ForwarderService {
         lastAttemptAt: new Date(),
         error,
       },
-    });
-  }
-
-  /**
-   * Get failed messages for retry
-   */
-  async getFailedMessages(limit = 50) {
-    return prisma.mailMessageLog.findMany({
-      where: {
-        forwardStatus: "FAILED",
-        attempts: { lt: config.worker.maxRetries },
-        NOT: { error: { contains: '"status":403' } },
-      },
-      include: { account: true },
-      orderBy: { lastAttemptAt: "asc" },
-      take: limit,
     });
   }
 
@@ -718,71 +591,6 @@ class ForwarderService {
     } catch (error) {
       console.error(
         `[Notification] Failed to send re-auth notification for ${accountEmail}: ${error.message}`,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Send general error notification email via SMTP
-   * Sends to BOTH developer and forward email
-   * @param {string} accountEmail - The email account that has an error
-   * @param {string} accountId - The account ID with the error
-   * @param {string} errorMessage - The error that occurred
-   */
-  async sendErrorNotification(accountEmail, accountId, errorMessage) {
-    try {
-      const forwardTo = await this.getForwardToEmail();
-
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-            <h2 style="color: #b45309; margin: 0 0 15px 0;">⚠️ Sync Error Notification</h2>
-            <p style="color: #78350f; margin: 0;">
-              An error occurred while syncing the following email account. The system will continue trying.
-            </p>
-          </div>
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-            <tr>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600; width: 120px;">Account:</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${accountEmail}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Error:</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; color: #dc2626;">${errorMessage}</td>
-            </tr>
-            <tr>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb; font-weight: 600;">Time:</td>
-              <td style="padding: 10px; border-bottom: 1px solid #e5e7eb;">${new Date().toLocaleString()}</td>
-            </tr>
-          </table>
-          <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            This notification was sent by Mail Collector Service via SMTP
-          </p>
-        </div>
-      `;
-
-      // Send via SMTP to BOTH forward email and dev email
-      const recipients = [forwardTo];
-      if (config.devEmail && config.devEmail !== forwardTo) {
-        recipients.push(config.devEmail);
-      }
-
-      const result = await this.sendViaSMTP(
-        recipients,
-        `⚠️ [Sync Error] ${accountEmail} - ${errorMessage.substring(0, 50)}`,
-        html,
-      );
-
-      if (result) {
-        console.log(
-          `[Notification] Error SMTP email sent for ${accountEmail} to ${recipients.join(", ")}`,
-        );
-      }
-      return result;
-    } catch (error) {
-      console.error(
-        `[Notification] Failed to send error notification for ${accountEmail}: ${error.message}`,
       );
       return false;
     }

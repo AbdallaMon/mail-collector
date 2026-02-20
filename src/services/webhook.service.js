@@ -169,7 +169,6 @@ class WebhookService {
     }
   }
 
-  // ✅ NEW: accounts without subscription
   async getAccountsNeedingSubscription() {
     const existing = await prisma.webhookSubscription.findMany({
       select: { accountId: true },
@@ -186,7 +185,6 @@ class WebhookService {
     });
   }
 
-  // ✅ NEW: expiring subscriptions (within 12 hours)
   async getExpiringSubscriptions() {
     const twelveHoursFromNow = new Date();
     twelveHoursFromNow.setHours(twelveHoursFromNow.getHours() + 12);
