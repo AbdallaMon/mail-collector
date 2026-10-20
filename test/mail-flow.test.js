@@ -137,6 +137,108 @@ test("inactive accounts and invalid webhook client state never fetch or enqueue 
   assert.equal(queued, false);
 });
 
+test("Steam accepts new-access subjects or a Guard phrase in the body without widening the sender filter", async () => {
+  const requests = [];
+  const h = createHarness({
+    fetch: async (_url, options) => {
+      requests.push(options);
+      return {
+        ok: true,
+        status: 200,
+        text: async () => '{"ok":true,"saved":true}',
+      };
+    },
+  });
+  h.db.systemSetting.findUnique = async () => null;
+  h.db.mailMessageLog.upsert = async () => {};
+  const forwarder = h.load("src/services/forwarder.service.js");
+  const body = "<p>demo, It looks like you are signing in.</p><p>A1B2C</p>";
+  for (const subject of [
+    "Your Steam account: Access from new computer",
+    "Your Steam account: Access from new web or mobile device",
+    "Steam ACCESS FROM NEW device type",
+  ]) {
+    const result = await forwarder.forwardGraphMessage(
+      {
+        id: `subject-${requests.length}`,
+        from: { emailAddress: { address: "noreply@steampowered.com" } },
+        subject,
+        body: { contentType: "html", content: body },
+      },
+      [],
+      "mailbox@example.test",
+      "account-1",
+    );
+    assert.equal(result.delivered, true);
+    assert.equal(JSON.parse(requests.at(-1).body).hasSteamGuardCodeText, false);
+  }
+  for (const [contentType, content] of [
+    ["text", "Dear demo,\nHERE IS THE STEAM GUARD CODE you need: A1B2C"],
+    [
+      "html",
+      "<p>Dear demo,</p><p>Here is the <b>Steam Guard</b>&nbsp;code you need: A1B2C</p>",
+    ],
+  ]) {
+    const result = await forwarder.forwardGraphMessage(
+      {
+        id: `body-${requests.length}`,
+        from: { emailAddress: { address: "noreply@steampowered.com" } },
+        subject: "Your Steam Guard code",
+        body: { contentType, content },
+      },
+      [],
+      "mailbox@example.test",
+      "account-1",
+    );
+    assert.equal(result.delivered, true);
+    const sent = requests.at(-1);
+    const payload = JSON.parse(sent.body);
+    assert.equal(payload.hasSteamGuardCodeText, true);
+    assert.equal(payload.username, "demo");
+    assert.equal(payload.code, "A1B2C");
+    assert.equal("body" in payload, false);
+    assert.equal(
+      sent.headers["X-Signature"],
+      crypto
+        .createHmac("sha256", h.config.steam.apiSecret)
+        .update(`${sent.headers["X-Timestamp"]}.${sent.body}`)
+        .digest("hex"),
+    );
+  }
+  for (const [from, subject, content] of [
+    ["noreply@steampowered.com", "Steam sale", body],
+    [
+      "notice@example.test",
+      "Steam access from new computer",
+      "Dear demo, Here is the Steam Guard code A1B2C",
+    ],
+    ["noreply@steampowered.com", "Steam from new computer", body],
+  ]) {
+    const result = await forwarder.forwardGraphMessage(
+      {
+        id: "ignored",
+        from: { emailAddress: { address: from } },
+        subject,
+        body: { contentType: "html", content },
+      },
+      [],
+      "mailbox@example.test",
+      "account-1",
+    );
+    assert.equal(result.delivered, false);
+  }
+  assert.equal(requests.length, 5);
+  const missingCode = h
+    .load("src/services/steamApi.service.js")
+    .extractSteamCodeAndUsername({
+      subject: "Steam Guard",
+      bodyType: "text",
+      body: "Dear demo, HERE IS THE STEAM GUARD CODE",
+    });
+  assert.equal(missingCode.hasSteamGuardCodeText, true);
+  assert.equal(missingCode.code, null);
+});
+
 test("OAuth refresh persists replacement tokens using the existing encryption format", async () => {
   const h = createHarness({
     modules: {

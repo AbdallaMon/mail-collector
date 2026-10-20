@@ -64,7 +64,7 @@ The launcher runs [verify-repairs.js](../../../scripts/local-demo/verify-repairs
 2. Deploy the changed steam_inbound.php to its existing path first, preserving includes/functions.php and the secret. Confirm the host's MySQL supports GET_LOCK; verify persistence, duplication and alerts on the selected environment.
 3. Deploy Node and its locked dependencies. Run the HTTP process and one maintenance worker. Its startup plan replaces eligible terminal jobs; do not use FLUSHALL or clear Redis.
 4. Observe real subscription expiry/execution, then an authorized test-message flow. PM2 online alone is insufficient. Review existing ERROR/NEEDS_REAUTH accounts individually; the code does not silently reset them or bulk replay historical Steam codes.
-5. To roll back delivery changes, stop the processes and restore the previous Node version before reverting PHP. The modified receiver remains compatible with the previous Node contract. There is no schema rollback for this patch.
+5. Preserve the previous release for rollback. After the new version has run, inspect Redis jobs first: newly queued jobs use the `upstream` backoff strategy, which the old code does not register. Restoring files alone is not a complete rollback; retain queue-policy compatibility without clearing jobs. The modified PHP receiver remains compatible with the previous Node contract. There is no schema rollback for this patch.
 
 These are documented steps, not completed production actions. Hosting behavior, actual client-secret validity and real Microsoft security verification are outside local simulation evidence.
 

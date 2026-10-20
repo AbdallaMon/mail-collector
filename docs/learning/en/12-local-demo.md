@@ -54,12 +54,16 @@ The runner does not report persistence merely because it received202; it waits f
 ```sh
 npm run local:steam
 npm run local:steam -- --username demo_user --code A1B2C
+npm run local:steam -- --variant web
+npm run local:steam -- --variant guard-body
 npm run local:stop
 npm run local:smoke
 npm run local:verify
 ```
 
 local:steam requires a running local environment and verifies another synthetic delivery. Usernames use letters/digits/underscore; codes use five uppercase letters/digits. local:stop orCtrl+C stops Node children and **only this project's containers**, retaining data. local:smoke starts from a stopped state, runs the scenario and stops automatically. Do not run it over an active local session; occupied-port rejection prevents duplicate startup.
+
+The web variant tests the web/mobile subject; guard-body tests a different subject with the Steam Guard phrase split across HTML tags. local:verify checks both through the actual PHP receiver and also rejects a missing, false or string body-match flag.
 
 ## 5. Logs and isolation
 

@@ -1,7 +1,7 @@
 ---
 title: "استخراج Steam وعقد PHP والتنبيهات"
 category: "Mail Collector"
-overview: "webhooks.policy يقارن عنوان المرسل أو domain بالـ allowlists بعد lowercase. إذا كان STEAM_ONLY=true وكانت القائمتان فارغتين، فلن تمر رسائل Steam العادية من هذا الفلتر. بعد ذلك ForwarderService يختبر أن عنوان المرسل يحتوي steampowered.com وأن subject بعد lowercase يحتوي from new computer. تعطيل STEAM_ONLY لا يلغي الفلتر الثاني ولا يحول التطبيق إلى جامع لكل الرسائل."
+overview: "webhooks.policy يقارن عنوان المرسل أو domain بالـ allowlists بعد lowercase. إذا كان STEAM_ONLY=true وكانت القائمتان فارغتين، فلن تمر رسائل Steam العادية من هذا الفلتر. بعد ذلك ForwarderService يختبر أن عنوان المرسل يحتوي steampowered.com وأن العنوان يحتوي access from new أو نص الرسالة بعد تنظيف HTML يحتوي here is the steam guard code، دون حساسية لحالة الحروف. تعطيل STEAM_ONLY لا يلغي الفلتر الثاني ولا يحول التطبيق إلى جامع لكل الرسائل."
 ---
 
 # استخراج Steam وعقد PHP والتنبيهات
@@ -12,13 +12,15 @@ overview: "webhooks.policy يقارن عنوان المرسل أو domain بال
 
 ## 1. مرحلتان للفلترة
 
-[webhooks.policy](../../../src/modules/webhooks/webhooks.policy.js) يقارن عنوان المرسل أو domain بالـ allowlists بعد lowercase. إذا كان STEAM_ONLY=true وكانت القائمتان فارغتين، فلن تمر رسائل Steam العادية من هذا الفلتر. بعد ذلك [ForwarderService](../../../src/services/forwarder.service.js) يختبر أن عنوان المرسل يحتوي steampowered.com وأن subject بعد lowercase يحتوي from new computer. تعطيل STEAM_ONLY لا يلغي الفلتر الثاني ولا يحول التطبيق إلى جامع لكل الرسائل.
+[webhooks.policy](../../../src/modules/webhooks/webhooks.policy.js) يقارن عنوان المرسل أو domain بالـ allowlists بعد lowercase. إذا كان STEAM_ONLY=true وكانت القائمتان فارغتين، فلن تمر رسائل Steam العادية من هذا الفلتر. بعد ذلك [ForwarderService](../../../src/services/forwarder.service.js) يختبر أن عنوان المرسل يحتوي steampowered.com وأن العنوان يحتوي access from new أو نص الرسالة بعد تنظيف HTML يحتوي here is the steam guard code، دون حساسية لحالة الحروف. تعطيل STEAM_ONLY لا يلغي الفلتر الثاني ولا يحول التطبيق إلى جامع لكل الرسائل.
 
-[SteamApiService](../../../src/services/steamApi.service.js) يحذف style/script/tags وبعض HTML entities، ثم يأخذ أول token مستقل من خمسة أحرف كبيرة/أرقام. يبحث عن username عبر مجموعة أنماط تحية بلغات مختلفة ثم Dear. هذا parsing بقواعد محددة؛ ليس فهمًا عامًا لكل رسائل Steam. جسم فارغ يسبب STEAM_BODY_MISSING. غياب الاسم أو الكود لا يمنع Node من الإرسال؛ PHP قد يتجاهل الطلب.
+[SteamApiService](../../../src/services/steamApi.service.js) يحذف style/script/tags وبعض HTML entities، ثم يأخذ أول token مستقل من خمسة أحرف كبيرة/أرقام بعد عبارة Steam Guard إن وجدت، وإلا يبحث في الجسم. بذلك لا تُعتبر STEAM أو GUARD المكتوبتان بحروف كبيرة كودًا لمجرد ظهورهما في العبارة. يبحث عن username عبر مجموعة أنماط تحية بلغات مختلفة ثم Dear. هذا parsing بقواعد محددة؛ ليس فهمًا عامًا لكل رسائل Steam. جسم فارغ يسبب STEAM_BODY_MISSING. غياب الاسم أو الكود لا يمنع Node من الإرسال؛ PHP قد يتجاهل الطلب.
+
+علامة تطابق النص تُحسب بعد حذف HTML وتوحيد المسافات، ويشملها توقيع HMAC الموجود. PHP يقبل boolean true فقط، وليس النص "true". جسم البريد لا يُرسل. يلزم نشر تعديل الفلتر في الطرفين، PHP أولًا. تطابق الفلتر ما زال يحتاج استخراج username/code قبل الحفظ.
 
 ## 2. عقد النقل والتوقيع
 
-الـ JSON يحمل source و fromAccount و from و to و subject و receivedDateTime و internetMessageId و graphMessageId و username و code. to قائمة عناوين مجمعة بفاصلة. body و attachments لا يدخلان الطلب. source قيمته mail-collector-graph. مسار webhook يملأ التاريخ الغائب من timestamp ثابت للمهمة حتى لا يتغير بين المحاولات.
+الـ JSON يحمل source و fromAccount و from و to و subject و receivedDateTime و internetMessageId و graphMessageId و username و code و hasSteamGuardCodeText. to قائمة عناوين مجمعة بفاصلة. body و attachments لا يدخلان الطلب. source قيمته mail-collector-graph. مسار webhook يملأ التاريخ الغائب من timestamp ثابت للمهمة حتى لا يتغير بين المحاولات.
 
 X-Timestamp هو Unix seconds كسلسلة نصية، و X-Signature هو HMAC-SHA256 hex على timestamp ثم نقطة ثم **نفس JSON string المرسل**، باستخدام STEAM_API_SECRET. إعادة تنسيق JSON بعد التوقيع تغيّر البايتات. المثال المشترك في آخر الفصل لا يرسل طلبًا.
 
@@ -42,7 +44,7 @@ X-Timestamp هو Unix seconds كسلسلة نصية، و X-Signature هو HMAC-S
 | تعذر حجز قفل الحفظ | 503 | SAVE_LOCK_TIMEOUT وRetry-After: 2 |
 | فشل اتصال/حفظ | 500 | DB_CONNECT_FAIL أو SAVE_FAIL |
 
-التحقق من HMAC يستخدم hash_equals. PHP يقبل steampowered.com فيfrom أوsteam فيsubject، ثم يشترط from new computer. تحويل التاريخ ومعايير التكرار وأعمدة INSERT محفوظة. قبل SELECT/INSERT يُؤخذ GET_LOCK خاص بالقاعدة والاسم الموحّد والكود بانتظار حتى ثانيتين؛ finally يحرره قبل الرد. mysqli strict يمنع الإبلاغ عن INSERT فاشل كحفظ ناجح. لا توجد أعمدة أوفهارس أوجداول أومهاجرات جديدة. فحص التكرار الحالي هو LOWER(TRIM(UserName)) والكود وDateTime >= تاريخ الرسالة الأصلي ناقص60 ثانية، دون حد أعلى. هذا يحمي retries والطلبات المتزامنة المتعاونة على نفس MySQL؛ ليس حفظًا بمعرّف رسالة ثابت أوضمان exactly-once عام. أي كاتب آخر يجب أن يستخدم نفس القفل؛ حذف الصفوف القديمة يزيل دليل التكرار.
+التحقق من HMAC يستخدم hash_equals. PHP يقبل steampowered.com فيfrom أوsteam فيsubject، ثم يشترط access from new في العنوان أو العلامة الموقعة hasSteamGuardCodeText=true. تحويل التاريخ ومعايير التكرار وأعمدة INSERT محفوظة. قبل SELECT/INSERT يُؤخذ GET_LOCK خاص بالقاعدة والاسم الموحّد والكود بانتظار حتى ثانيتين؛ finally يحرره قبل الرد. mysqli strict يمنع الإبلاغ عن INSERT فاشل كحفظ ناجح. لا توجد أعمدة أوفهارس أوجداول أومهاجرات جديدة. فحص التكرار الحالي هو LOWER(TRIM(UserName)) والكود وDateTime >= تاريخ الرسالة الأصلي ناقص60 ثانية، دون حد أعلى. هذا يحمي retries والطلبات المتزامنة المتعاونة على نفس MySQL؛ ليس حفظًا بمعرّف رسالة ثابت أوضمان exactly-once عام. أي كاتب آخر يجب أن يستخدم نفس القفل؛ حذف الصفوف القديمة يزيل دليل التكرار.
 
 ## 4. SMTP والسجلات
 
@@ -63,7 +65,8 @@ const payload = {
   internetMessageId: "<synthetic@example.test>",
   graphMessageId: "synthetic-message-1",
   username: "demo",
-  code: "A1B2C"
+  code: "A1B2C",
+  hasSteamGuardCodeText: false
 };
 const body = JSON.stringify(payload);
 const timestamp = "1792404000";

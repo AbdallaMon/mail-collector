@@ -58,6 +58,7 @@ const { DemoScenario, request } = require("./scenario");
   await scenario.sendSteam({
     username: option("--username"),
     code: option("--code"),
+    variant: option("--variant"),
   });
 })().catch((error) => {
   console.error(`[LOCAL_SIMULATION] ${error.message}`);

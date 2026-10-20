@@ -191,12 +191,59 @@ class RepairVerification {
     }
   }
 
+  async verifySteamFilters() {
+    for (const variant of ["web", "guard-body"]) {
+      const injected = await this.scenario.sendSteam({ variant });
+      await waitFor(async () => {
+        const record = await this.database.mailMessageLog.findUnique({
+          where: {
+            accountId_graphMessageId: {
+              accountId: this.accountId,
+              graphMessageId: injected.messageId,
+            },
+          },
+        });
+        return record?.forwardStatus === "FORWARDED";
+      }, `Steam ${variant} delivery`);
+      logEvent("STEAM_FILTER_VERIFIED", { variant, saved: true });
+    }
+    // PHP must not trust a truthy string or accept an unmatched legacy payload.
+    for (const flag of [undefined, false, "true"]) {
+      const body = JSON.stringify({
+        from: "noreply@steampowered.com",
+        subject: "Your Steam Guard code",
+        username: "local_filter_probe",
+        code: "A1B2C",
+        hasSteamGuardCodeText: flag,
+      });
+      const ts = Math.floor(Date.now() / 1000).toString();
+      const signature = createHmac("sha256", this.env.STEAM_API_SECRET)
+        .update(`${ts}.${body}`)
+        .digest("hex");
+      const response = await request(this.env.STEAM_API_URL, {
+        method: "POST",
+        body,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timestamp": ts,
+          "X-Signature": signature,
+        },
+      });
+      assert.equal(response.ignored, true);
+      assert.equal(response.reason, "SUBJECT_NOT_MATCH");
+    }
+    logEvent("STEAM_FILTER_FLAG_VALIDATED", {
+      rejectsMissingFalseAndString: true,
+    });
+  }
+
   async run() {
     try {
       await this.scenario.verifySession();
       await this.verifyDelivery("before-save");
       await this.verifyDelivery("after-save");
       await this.verifyConcurrentReceiver();
+      await this.verifySteamFilters();
       await this.verifyRetainedJobs();
       const result = {
         time: new Date().toISOString(),
@@ -204,6 +251,7 @@ class RepairVerification {
         retryAfterSave: true,
         concurrentSave: true,
         retainedJobRecovery: true,
+        steamSubjectAndBodyFilters: true,
       };
       fs.writeFileSync(
         path.join(settings.directory, "repairs-result.json"),

@@ -141,6 +141,7 @@ $graphMessageId = $payload['graphMessageId'] ?? null;
 
 $username = trim($payload['username'] ?? '');
 $code = trim($payload['code'] ?? '');
+$hasSteamGuardCodeText = ($payload['hasSteamGuardCodeText'] ?? false) === true;
 
 // log arrival (always)
 log_request([
@@ -153,12 +154,12 @@ log_request([
     'graphMessageId'=>$graphMessageId
 ]);
 
-// Same condition as OLD script (Steam + subject)
+// Keep the Steam filter; accept a matching subject or signed body-match flag.
 if (strpos($from, 'steampowered.com') === false && strpos($subject, 'steam') === false) {
     log_request(['ok'=>true,'ignored'=>true,'reason'=>'NOT_STEAM','graphMessageId'=>$graphMessageId]);
     json_response(200, ['ok'=>true,'ignored'=>true,'reason'=>'NOT_STEAM']);
 }
-if (strpos($subject, 'from new computer') === false) {
+if (strpos($subject, 'access from new') === false && !$hasSteamGuardCodeText) {
     log_request(['ok'=>true,'ignored'=>true,'reason'=>'SUBJECT_NOT_MATCH','graphMessageId'=>$graphMessageId]);
     json_response(200, ['ok'=>true,'ignored'=>true,'reason'=>'SUBJECT_NOT_MATCH']);
 }

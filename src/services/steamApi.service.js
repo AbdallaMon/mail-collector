@@ -33,6 +33,8 @@ class SteamApiService {
       graphMessageId: message.id,
       username: parsed?.username || "",
       code: parsed?.code || "",
+      // Derived from the body in Node and covered by the existing HMAC.
+      hasSteamGuardCodeText: parsed?.hasSteamGuardCodeText === true,
     };
     const ts = Math.floor(Date.now() / 1000).toString();
     const body = JSON.stringify(payload);
@@ -164,9 +166,17 @@ class SteamApiService {
         .trim();
     }
 
-    // Code: 5 chars A-Z0-9
+    const normalizedText = text.replace(/\s+/g, " ");
+    const guardPhrase = "here is the steam guard code";
+    const guardPosition = normalizedText.toLowerCase().indexOf(guardPhrase);
+    const hasSteamGuardCodeText = guardPosition >= 0;
+
+    // Start after the Guard phrase so uppercase STEAM/GUARD aren't read as codes.
+    const codeText = hasSteamGuardCodeText
+      ? normalizedText.slice(guardPosition + guardPhrase.length)
+      : text;
     let code = null;
-    const codeMatch = text.match(/\b([A-Z0-9]{5})\b/);
+    const codeMatch = codeText.match(/\b([A-Z0-9]{5})\b/);
     if (codeMatch) code = codeMatch[1];
 
     // Username extraction (same patterns you used in PHP)
@@ -199,7 +209,7 @@ class SteamApiService {
       }
     }
 
-    return { code, username, subject: subj };
+    return { code, username, subject: subj, hasSteamGuardCodeText };
   }
 }
 module.exports = new SteamApiService();

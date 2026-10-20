@@ -64,14 +64,16 @@ class ForwarderService {
           body: bodyContent,
         });
 
-        // If subject not match OR no code/username => still send to API and let PHP ignore?
-        // Better: keep SAME old rule in Node too (fast return)
-        if (!subject.includes("from new computer")) {
+        // Accept a new-access subject or the Steam Guard phrase in the body.
+        if (
+          !subject.includes("access from new") &&
+          !parsed.hasSteamGuardCodeText
+        ) {
           await this.logForward(
             accountId,
             message,
             "SKIPPED",
-            "Steam subject not match",
+            "Steam subject/body not match",
           );
           return {
             success: true,

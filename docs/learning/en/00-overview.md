@@ -14,7 +14,7 @@ overview: "The service connects Microsoft mailboxes through delegated OAuth, rec
 
 The service connects Microsoft mailboxes through delegated OAuth, receives Inbox message notifications, reads each message from Graph, and sends extracted Steam data to a PHP receiver on shared hosting. PHP saves the code in the other site's IncomingCodes table. SMTP separately delivers security and failure notifications.
 
-Synthetic example: a message from noreply@steampowered.com has a subject containing from new computer and a body containing username demo and code A1B2C. Node sends the parsed values, message identifiers and metadata, not the email body. Notification receipt, message retrieval, API acceptance and database persistence are separate outcomes.
+Synthetic example: a message from noreply@steampowered.com has a subject containing access from new and a body containing username demo and code A1B2C. Node sends the parsed values, message identifiers and metadata, not the email body. Notification receipt, message retrieval, API acceptance and database persistence are separate outcomes.
 
 ## 2. Where each part runs
 

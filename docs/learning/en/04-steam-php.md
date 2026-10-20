@@ -1,7 +1,7 @@
 ---
 title: "Steam extraction PHP contract and notifications"
 category: "Mail Collector"
-overview: "webhooks.policy compares a lowercased sender/address domain against configured allowlists. With STEAM_ONLY=true and two empty lists, ordinary Steam messages cannot pass this filter. ForwarderService then requires steampowered.com within the sender address and from new computer within the lowercased subject. Disabling STEAM_ONLY does not remove the second filter or turn the application into a general mail collector."
+overview: "webhooks.policy compares a lowercased sender/address domain against configured allowlists. With STEAM_ONLY=true and two empty lists, ordinary Steam messages cannot pass this filter. ForwarderService then requires steampowered.com within the sender address and either access from new in the subject or here is the steam guard code in the normalized body, case-insensitively. Disabling STEAM_ONLY does not remove the second filter or turn the application into a general mail collector."
 ---
 
 # Steam extraction PHP contract and notifications
@@ -12,13 +12,15 @@ overview: "webhooks.policy compares a lowercased sender/address domain against c
 
 ## 1. Two filtering stages
 
-[webhooks.policy](../../../src/modules/webhooks/webhooks.policy.js) compares a lowercased sender/address domain against configured allowlists. With STEAM_ONLY=true and two empty lists, ordinary Steam messages cannot pass this filter. [ForwarderService](../../../src/services/forwarder.service.js) then requires steampowered.com within the sender address and from new computer within the lowercased subject. Disabling STEAM_ONLY does not remove the second filter or turn the application into a general mail collector.
+[webhooks.policy](../../../src/modules/webhooks/webhooks.policy.js) compares a lowercased sender/address domain against configured allowlists. With STEAM_ONLY=true and two empty lists, ordinary Steam messages cannot pass this filter. [ForwarderService](../../../src/services/forwarder.service.js) then requires steampowered.com within the sender address and either access from new in the subject or here is the steam guard code in the normalized body, case-insensitively. Disabling STEAM_ONLY does not remove the second filter or turn the application into a general mail collector.
 
-[SteamApiService](../../../src/services/steamApi.service.js) removes style/script/tags and some HTML entities, takes the first standalone five-character uppercase-letter/digit token, and searches several language-specific greeting patterns plus Dear for a username. These are specific parsing rules, not general Steam-message understanding. An empty body throws STEAM_BODY_MISSING. Missing parsed username/code still permits a Node request that PHP may ignore.
+[SteamApiService](../../../src/services/steamApi.service.js) removes style/script/tags and some HTML entities, takes the first standalone five-character uppercase-letter/digit token after the Steam Guard phrase when present (otherwise from the body), and searches several language-specific greeting patterns plus Dear for a username. These are specific parsing rules, not general Steam-message understanding. An empty body throws STEAM_BODY_MISSING. Missing parsed username/code still permits a Node request that PHP may ignore.
+
+The body-match flag is computed after stripping HTML and normalizing whitespace, and is covered by the existing HMAC. PHP accepts only boolean true, not the string "true". The email body is still omitted. Both filters must be deployed together, PHP first. A match still requires a parsed username/code before PHP saves anything.
 
 ## 2. Payload and signature
 
-JSON includes source, fromAccount, from, to, subject, receivedDateTime, internetMessageId, graphMessageId, username and code. to joins recipient addresses with commas. Email body and attachments are omitted. source is mail-collector-graph. The webhook fills a missing message date from the stable job timestamp so retry input does not move forward in time.
+JSON includes source, fromAccount, from, to, subject, receivedDateTime, internetMessageId, graphMessageId, username, code and hasSteamGuardCodeText. to joins recipient addresses with commas. Email body and attachments are omitted. source is mail-collector-graph. The webhook fills a missing message date from the stable job timestamp so retry input does not move forward in time.
 
 X-Timestamp contains Unix seconds as a string. X-Signature is hex HMAC-SHA256 over timestamp, a dot and the **exact transmitted JSON string**, keyed by STEAM_API_SECRET. Reformatting JSON after signing changes the signed bytes. The shared example at the end sends no request.
 
@@ -42,7 +44,7 @@ Node POSTs application/json with an AbortController timeout of STEAM_API_TIMEOUT
 | Save lock unavailable | 503 | SAVE_LOCK_TIMEOUT; Retry-After: 2 |
 | Connection/write failure | 500 | DB_CONNECT_FAIL or SAVE_FAIL |
 
-Signature comparison uses hash_equals. PHP accepts steampowered.com in from or steam in subject, then requires from new computer. Date conversion, duplicate criteria and INSERT columns are preserved. Before SELECT/INSERT, GET_LOCK takes a per-database/normalized-username/code lock, waiting up to two seconds; finally releases it before returning. Strict mysqli errors prevent reporting an unsuccessful INSERT as saved. No columns, indexes, tables or migrations are added. The existing check is LOWER(TRIM(UserName)), code and DateTime >= the original message date minus 60 seconds, without an upper bound. This protects retries and cooperating concurrent requests on the same MySQL server; it is not immutable-message-ID or global exactly-once storage. Other writers must use the same lock, and deleting historical rows removes their deduplication evidence.
+Signature comparison uses hash_equals. PHP accepts steampowered.com in from or steam in subject, then requires access from new in the subject or the signed boolean hasSteamGuardCodeText=true. Date conversion, duplicate criteria and INSERT columns are preserved. Before SELECT/INSERT, GET_LOCK takes a per-database/normalized-username/code lock, waiting up to two seconds; finally releases it before returning. Strict mysqli errors prevent reporting an unsuccessful INSERT as saved. No columns, indexes, tables or migrations are added. The existing check is LOWER(TRIM(UserName)), code and DateTime >= the original message date minus 60 seconds, without an upper bound. This protects retries and cooperating concurrent requests on the same MySQL server; it is not immutable-message-ID or global exactly-once storage. Other writers must use the same lock, and deleting historical rows removes their deduplication evidence.
 
 ## 4. SMTP and logs
 
@@ -63,7 +65,8 @@ const payload = {
   internetMessageId: "<synthetic@example.test>",
   graphMessageId: "synthetic-message-1",
   username: "demo",
-  code: "A1B2C"
+  code: "A1B2C",
+  hasSteamGuardCodeText: false
 };
 const body = JSON.stringify(payload);
 const timestamp = "1792404000";

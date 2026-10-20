@@ -54,12 +54,16 @@ npm run local
 ```sh
 npm run local:steam
 npm run local:steam -- --username demo_user --code A1B2C
+npm run local:steam -- --variant web
+npm run local:steam -- --variant guard-body
 npm run local:stop
 npm run local:smoke
 npm run local:verify
 ```
 
 local:steam يحتاج local شغالًا؛ يرسل رسالة صناعية أخرى ويؤكد الحفظ. اسم المستخدم حروف/أرقام/underscore، والكود خمسة أحرف كبيرة/أرقام. local:stop أوCtrl+C يوقف عمليات Node وحاويات **هذا المشروع فقط** مع إبقاء بيانات التجربة. local:smoke يبدأ من وضع متوقف، ينفذ السيناريو ثم يوقف البيئة تلقائيًا. لا تشغّل local:smoke فوق local شغال؛ رفض المنفذ المشغول يمنع بدء نسختين بالخطأ.
+
+الخيار web يختبر عنوان الويب والموبايل، وguard-body يختبر عنوانًا مختلفًا مع عبارة Steam Guard موزعة بين HTML tags. أمر local:verify يختبر الحالتين حتى الحفظ في PHP الفعلي، ويتحقق من رفض علامة تطابق النص الغائبة أو false أو المكتوبة كنص.
 
 ## 5. اللوجات والعزل
 

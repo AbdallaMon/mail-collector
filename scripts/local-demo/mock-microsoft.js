@@ -35,14 +35,12 @@ class MockMicrosoft {
   requireToken(req, res, next) {
     const token = req.headers.authorization?.replace(/^Bearer /, "");
     if ((this.accessTokens.get(token) || 0) <= Date.now()) {
-      return res
-        .status(401)
-        .json({
-          error: {
-            code: "InvalidAuthenticationToken",
-            message: "Local synthetic token is absent or expired",
-          },
-        });
+      return res.status(401).json({
+        error: {
+          code: "InvalidAuthenticationToken",
+          message: "Local synthetic token is absent or expired",
+        },
+      });
     }
     next();
   }
@@ -50,14 +48,12 @@ class MockMicrosoft {
   async createSubscription(req, res) {
     const expected = `${settings.appUrl}/api/webhooks/mail`;
     if (req.body.notificationUrl !== expected)
-      return res
-        .status(400)
-        .json({
-          error: {
-            code: "InvalidSubscription",
-            message: "Only the local webhook is allowed",
-          },
-        });
+      return res.status(400).json({
+        error: {
+          code: "InvalidSubscription",
+          message: "Only the local webhook is allowed",
+        },
+      });
     const validationToken = randomUUID();
     const validation = await fetch(
       `${expected}?validationToken=${validationToken}`,
@@ -71,9 +67,11 @@ class MockMicrosoft {
     res.status(201).json(subscription);
   }
 
-  async inject({ kind = "steam", username, code }) {
+  async inject({ kind = "steam", username, code, variant = "computer" }) {
     if (!["steam", "security"].includes(kind))
       throw new Error("kind must be steam or security");
+    if (!["computer", "web", "guard-body"].includes(variant))
+      throw new Error("Unknown local Steam message variant");
     if (
       kind === "steam" &&
       (!/^\w{1,80}$/.test(username || "") || !/^[A-Z0-9]{5}$/.test(code || ""))
@@ -103,13 +101,19 @@ class MockMicrosoft {
       toRecipients: [{ emailAddress: { address: settings.mailbox } }],
       subject:
         kind === "steam"
-          ? "Steam access from new computer"
+          ? {
+              computer: "Steam access from new computer",
+              web: "Your Steam account: Access from new web or mobile device",
+              "guard-body": "Your Steam Guard code",
+            }[variant]
           : "Synthetic Microsoft security notice",
       body: {
         contentType: "html",
         content:
           kind === "steam"
-            ? `<p>${username}, It looks like you are signing in from a new computer.</p><p>${code}</p>`
+            ? variant === "guard-body"
+              ? `<p>Dear ${username},</p><p>Here is the <b>Steam Guard</b>&nbsp;code you need: ${code}</p>`
+              : `<p>${username}, It looks like you are signing in from a new device.</p><p>${code}</p>`
             : "<p>This is a local simulated security notice, not a real account alert.</p>",
       },
     };
@@ -177,24 +181,20 @@ class MockMicrosoft {
         req.body.client_id !== "local-demo-client" ||
         req.body.client_secret !== "local-demo-client-secret"
       )
-        return res
-          .status(401)
-          .json({
-            error: "invalid_client",
-            error_description: "Local client credentials do not match",
-          });
+        return res.status(401).json({
+          error: "invalid_client",
+          error_description: "Local client credentials do not match",
+        });
       const refreshing = req.body.grant_type === "refresh_token";
       const allowed = refreshing
         ? this.refreshTokens.has(req.body.refresh_token)
         : req.body.grant_type === "authorization_code" &&
           this.codes.delete(req.body.code);
       if (!allowed)
-        return res
-          .status(400)
-          .json({
-            error: "invalid_grant",
-            error_description: "Unknown local synthetic grant",
-          });
+        return res.status(400).json({
+          error: "invalid_grant",
+          error_description: "Unknown local synthetic grant",
+        });
       const tokens = this.issueTokens();
       logEvent(refreshing ? "TOKEN_REFRESHED" : "TOKEN_ISSUED", {
         mailbox: settings.mailbox,
@@ -210,14 +210,12 @@ class MockMicrosoft {
     app.get("/v1.0/me/messages/:id", (req, res) => {
       const message = this.messages.get(req.params.id);
       if (!message)
-        return res
-          .status(404)
-          .json({
-            error: {
-              code: "ErrorItemNotFound",
-              message: "Synthetic message not found",
-            },
-          });
+        return res.status(404).json({
+          error: {
+            code: "ErrorItemNotFound",
+            message: "Synthetic message not found",
+          },
+        });
       logEvent("GRAPH_MESSAGE_READ", { messageId: message.id });
       res.json(message);
     });

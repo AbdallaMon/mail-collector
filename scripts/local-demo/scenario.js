@@ -63,14 +63,14 @@ class DemoScenario {
       );
   }
 
-  async sendSteam({ username, code } = {}) {
+  async sendSteam({ username, code, variant } = {}) {
     await this.verifySession();
     username ||= `demo_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
     code ||= randomUUID().replaceAll("-", "").slice(0, 5).toUpperCase();
     const injected = await request(`${settings.providerUrl}/__demo/steam`, {
       method: "POST",
       headers: this.controlHeaders,
-      body: JSON.stringify({ kind: "steam", username, code }),
+      body: JSON.stringify({ kind: "steam", username, code, variant }),
     });
     const { row, outcome } = await waitFor(async () => {
       const logFile = path.join(
