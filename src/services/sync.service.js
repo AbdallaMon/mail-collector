@@ -1,4 +1,5 @@
-const prisma = require("../config/database");
+const accountRepo = require("../repositories/account.repo");
+const messageLogRepo = require("../repositories/messageLog.repo");
 const graphService = require("./graph.service");
 const forwarderService = require("./forwarder.service");
 const config = require("../config");
@@ -59,13 +60,13 @@ class SyncService {
     console.log(`      ✓ Message forwarded successfully`);
 
     // Increment forwarded counter on the account
-    await prisma.mailAccount.update({
+    await accountRepo.update({
       where: { id: accountId },
       data: { forwardedCount: { increment: 1 } },
     });
 
     // Log for dedup only (minimal - just ID and status)
-    await prisma.mailMessageLog.upsert({
+    await messageLogRepo.upsert({
       where: {
         accountId_graphMessageId: {
           accountId,
@@ -94,7 +95,7 @@ class SyncService {
    * @returns {object} - Sync result
    */
   async syncMailbox(accountId) {
-    const account = await prisma.mailAccount.findUnique({
+    const account = await accountRepo.findUnique({
       where: { id: accountId },
     });
 
@@ -125,7 +126,7 @@ class SyncService {
 
       if (messages.length === 0) {
         // No messages, just update sync time
-        await prisma.mailAccount.update({
+        await accountRepo.update({
           where: { id: accountId },
           data: {
             lastSyncAt: new Date(),
@@ -138,7 +139,7 @@ class SyncService {
       }
 
       // Bulk load already forwarded message IDs for this account
-      const forwardedLogs = await prisma.mailMessageLog.findMany({
+      const forwardedLogs = await messageLogRepo.findMany({
         where: {
           accountId,
           graphMessageId: { in: messages.map((m) => m.id) },
@@ -196,7 +197,7 @@ class SyncService {
               JSON.stringify(details),
             );
             // Increment failed counter on account
-            await prisma.mailAccount.update({
+            await accountRepo.update({
               where: { id: accountId },
               data: { failedForwardCount: { increment: 1 } },
             });
@@ -218,7 +219,7 @@ class SyncService {
         }
       }
 
-      await prisma.mailAccount.update({
+      await accountRepo.update({
         where: { id: accountId },
         data: {
           lastSyncAt: new Date(),
@@ -234,16 +235,12 @@ class SyncService {
       console.error(`[${account.email}] Sync error:`, error.message);
 
       // Check if this is an auth error
-      const needsReauth =
-        error.message.includes("Token refresh failed") ||
-        error.message.includes("InvalidAuthenticationToken") ||
-        error.message.includes("token") ||
-        error.response?.status === 401;
+      const needsReauth = error.needsReauth === true;
 
       const newErrorCount = account.errorCount + 1;
 
       // Update account status
-      await prisma.mailAccount.update({
+      await accountRepo.update({
         where: { id: accountId },
         data: {
           lastError: error.message,
@@ -263,10 +260,16 @@ class SyncService {
       } else {
         // For other errors: send error notification (only once per 5 errors to avoid spam)
         if (newErrorCount === 1 || newErrorCount % 5 === 0) {
-          await forwarderService.sendErrorNotification(
+          await forwarderService.sendErrorNotificationToDev(
             account.email,
             accountId,
-            error.message,
+            {
+              api: error.source || "Microsoft Graph",
+              endpoint: "manual-sync",
+              errorMessage: error.message,
+              status: error.status || error.response?.status || null,
+              timestamp: new Date().toISOString(),
+            },
           );
         }
       }
@@ -281,7 +284,7 @@ class SyncService {
    * Sync all active mailboxes (parallel)
    */
   async syncAllMailboxes() {
-    const accounts = await prisma.mailAccount.findMany({
+    const accounts = await accountRepo.findMany({
       where: {
         status: { in: ["CONNECTED", "ERROR"] },
         isEnabled: true,
@@ -367,7 +370,7 @@ class SyncService {
       // Small delay after forwarding
       await this.sleep(75);
 
-      await prisma.mailMessageLog.update({
+      await messageLogRepo.update({
         where: { id: log.id },
         data: {
           forwardStatus: "FORWARDED",
@@ -377,7 +380,7 @@ class SyncService {
       });
 
       // Increment forwarded counter, decrement failed counter
-      await prisma.mailAccount.update({
+      await accountRepo.update({
         where: { id: log.accountId },
         data: {
           forwardedCount: { increment: 1 },
@@ -387,7 +390,7 @@ class SyncService {
 
       return true;
     } catch (error) {
-      await prisma.mailMessageLog.update({
+      await messageLogRepo.update({
         where: { id: log.id },
         data: {
           attempts: log.attempts + 1,
@@ -406,11 +409,11 @@ class SyncService {
    */
   async getStatistics() {
     const [accounts, accountAggregates] = await Promise.all([
-      prisma.mailAccount.groupBy({
+      accountRepo.groupBy({
         by: ["status"],
         _count: true,
       }),
-      prisma.mailAccount.aggregate({
+      accountRepo.aggregate({
         _sum: {
           forwardedCount: true,
           failedForwardCount: true,

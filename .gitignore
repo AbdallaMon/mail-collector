@@ -1,7 +1,10 @@
 node_modules/
 .env
-.env.example
-logs/
+.env.test
+.env.example.old
+
+/logs/
+/docs/html/
 *.log
 .DS_Store
 Thumbs.db
@@ -21,6 +24,11 @@ dist/
 # Local documentation (do not commit)
 README_LOCAL.md
 SERVER_USERS.md
+READMELOCAL.md
+SERVERUSERS.md
+.local-tools/
+.cache/
+.local-demo/
 
 # Debug
 npm-debug.log*

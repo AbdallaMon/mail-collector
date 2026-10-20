@@ -1,8 +1,11 @@
+const tokenRepo = require("../repositories/token.repo");
+const accountRepo = require("../repositories/account.repo");
+const syncStateRepo = require("../repositories/syncState.repo");
 const axios = require("axios");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("node:crypto");
 const config = require("../config");
 const encryption = require("../utils/encryption");
-const prisma = require("../config/database");
+const upstreamErrorPolicy = require("../utils/upstreamErrorPolicy");
 
 // Lazy load to avoid circular dependency
 let webhookService = null;
@@ -30,7 +33,7 @@ class MicrosoftAuthService {
   generateAuthUrl(accountId = null) {
     const state = JSON.stringify({
       accountId,
-      nonce: uuidv4(),
+      nonce: randomUUID(),
       timestamp: Date.now(),
     });
 
@@ -76,26 +79,34 @@ class MicrosoftAuthService {
   }
 
   async refreshAccessToken(encryptedRefreshToken) {
+    // A decryption error is a local key/data problem, not revoked Microsoft consent.
+    const refreshToken = encryption.decrypt(encryptedRefreshToken);
+    if (!refreshToken) {
+      throw Object.assign(
+        new Error("No refresh token found - please reconnect"),
+        {
+          source: "microsoft-oauth",
+          needsReauth: true,
+          retryable: false,
+        },
+      );
+    }
+    const params = new URLSearchParams({
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    });
+
     try {
-      const refreshToken = encryption.decrypt(encryptedRefreshToken);
-
-      const params = new URLSearchParams({
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        refresh_token: refreshToken,
-        grant_type: "refresh_token",
-        // scope: this.scopes.join(" "),
-      });
-
       const response = await axios.post(this.tokenUrl, params.toString(), {
+        timeout: 15_000,
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
       return response.data;
     } catch (error) {
-      throw new Error(
-        `Token refresh failed: ${error.response?.data?.error_description || error.message}`,
-      );
+      throw upstreamErrorPolicy.microsoftRefreshError(error);
     }
   }
 
@@ -113,7 +124,7 @@ class MicrosoftAuthService {
   async storeTokens(accountId, tokenData) {
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
 
-    await prisma.mailToken.upsert({
+    await tokenRepo.upsert({
       where: { accountId },
       create: {
         accountId,
@@ -135,39 +146,58 @@ class MicrosoftAuthService {
     });
   }
 
-  async getValidAccessToken(accountId) {
-    const tokenRecord = await prisma.mailToken.findUnique({
+  async getValidAccessToken(accountId, { forceRefresh = false } = {}) {
+    const tokenRecord = await tokenRepo.findUnique({
       where: { accountId },
     });
 
-    if (!tokenRecord) {
-      throw new Error("No tokens found for account - please reconnect");
-    }
-
-    const now = new Date();
-    const expiresAt = new Date(tokenRecord.expiresAt);
-    const bufferTime = 5 * 60 * 1000;
-
-    if (expiresAt.getTime() - now.getTime() > bufferTime) {
-      const decryptedToken = encryption.decrypt(tokenRecord.accessToken);
-      if (!decryptedToken || decryptedToken.trim() === "") {
-        throw new Error("Stored access token is empty - please reconnect");
-      }
-      return decryptedToken;
-    }
-
     try {
+      if (!tokenRecord) {
+        throw Object.assign(
+          new Error("No tokens found for account - please reconnect"),
+          {
+            source: "microsoft-oauth",
+            needsReauth: true,
+            retryable: false,
+          },
+        );
+      }
+      const remainingMs =
+        new Date(tokenRecord.expiresAt).getTime() - Date.now();
+      if (!forceRefresh && remainingMs > 5 * 60 * 1000) {
+        const decryptedToken = encryption.decrypt(tokenRecord.accessToken);
+        if (!decryptedToken?.trim())
+          throw new Error("Stored access token is empty");
+        return decryptedToken;
+      }
       const newTokens = await this.refreshAccessToken(tokenRecord.refreshToken);
+      if (
+        !newTokens?.access_token ||
+        !Number.isFinite(Number(newTokens.expires_in)) ||
+        Number(newTokens.expires_in) <= 0
+      ) {
+        throw Object.assign(
+          new Error("Microsoft returned an invalid token response"),
+          {
+            source: "microsoft-oauth",
+            retryable: false,
+          },
+        );
+      }
       await this.storeTokens(accountId, newTokens);
       return newTokens.access_token;
     } catch (error) {
-      await prisma.mailAccount.update({
-        where: { id: accountId },
-        data: {
-          status: "NEEDS_REAUTH",
-          lastError: `Token refresh failed: ${error.message}`,
-        },
-      });
+      try {
+        await accountRepo.update({
+          where: { id: accountId },
+          data: {
+            lastError: error.message,
+            ...(error.needsReauth === true ? { status: "NEEDS_REAUTH" } : {}),
+          },
+        });
+      } catch (storageError) {
+        console.error("Could not persist token failure:", storageError.message);
+      }
       throw error;
     }
   }
@@ -189,7 +219,7 @@ class MicrosoftAuthService {
 
     let account;
     if (stateData.accountId) {
-      account = await prisma.mailAccount.update({
+      account = await accountRepo.update({
         where: { id: stateData.accountId },
         data: {
           email,
@@ -201,7 +231,7 @@ class MicrosoftAuthService {
         },
       });
     } else {
-      account = await prisma.mailAccount.upsert({
+      account = await accountRepo.upsert({
         where: { email },
         create: { email, msUserId, displayName, status: "CONNECTED" },
         update: {
@@ -216,7 +246,7 @@ class MicrosoftAuthService {
 
     await this.storeTokens(account.id, tokenData);
 
-    await prisma.mailSyncState.upsert({
+    await syncStateRepo.upsert({
       where: { accountId: account.id },
       create: { accountId: account.id },
       update: {},

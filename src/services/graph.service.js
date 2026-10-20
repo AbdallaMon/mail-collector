@@ -1,6 +1,6 @@
+const syncStateRepo = require("../repositories/syncState.repo");
 const axios = require("axios");
 const config = require("../config");
-const prisma = require("../config/database");
 const microsoftAuthService = require("./microsoftAuth.service");
 
 /**
@@ -84,7 +84,7 @@ class GraphService {
     }
 
     if (deltaLink) {
-      await prisma.mailSyncState.update({
+      await syncStateRepo.update({
         where: { accountId },
         data: { deltaLink, lastDeltaAt: new Date() },
       });
@@ -97,7 +97,7 @@ class GraphService {
   }
 
   async getDeltaMessages(accountId) {
-    const syncState = await prisma.mailSyncState.findUnique({
+    const syncState = await syncStateRepo.findUnique({
       where: { accountId },
     });
 
@@ -156,7 +156,7 @@ class GraphService {
           }
         }
 
-        await prisma.mailSyncState.update({
+        await syncStateRepo.update({
           where: { accountId },
           data: {
             deltaLink,
@@ -169,7 +169,7 @@ class GraphService {
       return { messages, deltaLink };
     } catch (error) {
       if (error.response?.status === 410) {
-        await prisma.mailSyncState.update({
+        await syncStateRepo.update({
           where: { accountId },
           data: { deltaLink: null },
         });
@@ -189,80 +189,24 @@ class GraphService {
     return response.data;
   }
 
-  /**
-   * Get message with only the fields needed for webhook processing
-   * (no attachments — saves bandwidth and quota)
-   * Used for: Steam filter check + body parsing + API send
-   */
   async getMessageForWebhook(accountId, messageId) {
-    const accessToken =
-      await microsoftAuthService.getValidAccessToken(accountId);
-    const client = this.createClient(accessToken);
-    const response = await this.withRetry(() =>
-      client.get(
-        `/me/messages/${messageId}?$select=id,subject,from,toRecipients,body,receivedDateTime,internetMessageId`,
-      ),
-    );
-    return response.data;
-  }
-
-  /**
-   * Get a lightweight message preview (only from, subject, receivedDateTime, internetMessageId)
-   * Used by webhook to check Steam filter without reading full message body
-   */
-  async getMessagePreview(accountId, messageId) {
-    const accessToken =
-      await microsoftAuthService.getValidAccessToken(accountId);
-    const client = this.createClient(accessToken);
-    const response = await this.withRetry(() =>
-      client.get(
-        `/me/messages/${messageId}?$select=id,subject,from,receivedDateTime,internetMessageId`,
-      ),
-    );
-    return response.data;
-  }
-
-  async getMessageAttachments(accountId, messageId) {
-    const accessToken =
-      await microsoftAuthService.getValidAccessToken(accountId);
-    const client = this.createClient(accessToken);
-    const response = await this.withRetry(() =>
-      client.get(`/me/messages/${messageId}/attachments`),
-    );
-    return response.data.value || [];
-  }
-
-  /**
-   * Forward a message directly via Graph API
-   * Uses POST /me/messages/{id}/forward
-   * The email is sent from the original mailbox, preserving headers
-   * @param {string} accountId - Account ID
-   * @param {string} messageId - Graph message ID to forward
-   * @param {string} toEmail - Destination email address
-   * @param {string} comment - Optional comment to include in the forward
-   * @returns {boolean} - true if successful
-   */
-  async forwardMessage(accountId, messageId, toEmail, comment = "") {
-    const accessToken =
-      await microsoftAuthService.getValidAccessToken(accountId);
-    const client = this.createClient(accessToken);
-
-    const body = {
-      comment,
-      toRecipients: [
-        {
-          emailAddress: {
-            address: toEmail,
-          },
-        },
-      ],
+    const url = `/me/messages/${messageId}?$select=id,subject,from,toRecipients,body,receivedDateTime,internetMessageId`;
+    const readMessage = async (forceRefresh) => {
+      const token = await microsoftAuthService.getValidAccessToken(accountId, {
+        forceRefresh,
+      });
+      const response = await this.createClient(token).get(url, {
+        timeout: 15_000,
+      });
+      return response.data;
     };
-
-    await this.withRetry(() =>
-      client.post(`/me/messages/${messageId}/forward`, body),
-    );
-
-    return true;
+    // Bull owns transient retries for this path; avoid multiplying Graph and queue retries.
+    try {
+      return await readMessage(false);
+    } catch (error) {
+      if (error.response?.status !== 401) throw error;
+      return readMessage(true);
+    }
   }
 
   async testConnection(accountId) {
@@ -277,5 +221,4 @@ class GraphService {
     }
   }
 }
-
 module.exports = new GraphService();

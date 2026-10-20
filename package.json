@@ -5,9 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "concurrently \"nodemon src/server.js\" \"nodemon src/worker.js\"",
-    "dev:server": "nodemon src/server.js",
-    "dev:worker": "nodemon src/worker.js",
+    "dev": "concurrently \"node --watch src/server.js\" \"node --watch src/worker.js\"",
+    "dev:server": "node --watch src/server.js",
+    "dev:worker": "node --watch src/worker.js",
     "worker": "node src/worker.js",
     "prod": "concurrently \"node src/server.js\" \"node src/worker.js\"",
     "db:generate": "prisma generate",
@@ -16,35 +16,47 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "setup": "npm run db:generate && npm run db:push && npm run db:seed",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "check": "node scripts/check.js",
+    "test": "node --test test/*.test.js",
+    "docs:build": "node scripts/generate-docs-site.mjs",
+    "docs:check": "node scripts/check-learning-docs.mjs && node scripts/check-docs-coverage.mjs",
+    "docs:serve": "node scripts/docs-site-server.mjs",
+    "local": "node scripts/local-demo/run.js",
+    "local:smoke": "node scripts/local-demo/run.js --once",
+    "local:verify": "node scripts/local-demo/run.js --once --verify-repairs",
+    "local:steam": "node scripts/local-demo/client.js steam",
+    "local:stop": "node scripts/local-demo/client.js stop"
   },
   "dependencies": {
-    "@prisma/client": "^5.10.0",
-    "axios": "^1.6.7",
-    "bcryptjs": "^2.4.3",
+    "@prisma/client": "6.19.3",
+    "axios": "^1.20.0",
+    "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
-    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "crypto": "^1.0.1",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.4.1",
-    "express": "^4.18.2",
+    "express": "^4.22.3",
     "express-rate-limit": "^7.1.5",
-    "helmet": "^7.1.0",
-    "ioredis": "^5.3.2",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
-    "mailparser": "^3.6.6",
-    "morgan": "^1.10.0",
-    "nodemailer": "^6.9.9",
-    "uuid": "^9.0.1",
+    "morgan": "^1.12.1",
+    "nodemailer": "^10.1.7",
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
-    "nodemon": "^3.0.3",
-    "prisma": "^5.10.0"
+    "concurrently": "^10.0.6",
+    "prisma": "6.19.3"
+  },
+  "overrides": {
+    "bull": {
+      "uuid": "11.1.1"
+    },
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0"
+    }
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.12.0"
   }
 }

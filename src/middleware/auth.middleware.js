@@ -1,7 +1,7 @@
+const adminRepo = require("../repositories/admin.repo");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const ApiError = require("../utils/ApiError");
-const prisma = require("../config/database");
 
 /**
  * Authentication middleware
@@ -30,7 +30,7 @@ const authenticate = async (req, res, next) => {
     }
 
     // Get user from database
-    const user = await prisma.adminUser.findUnique({
+    const user = await adminRepo.findUnique({
       where: { id: decoded.userId },
     });
 
@@ -52,17 +52,4 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-/**
- * Admin-only middleware
- */
-const adminOnly = (req, res, next) => {
-  if (req.user?.role !== "admin") {
-    return next(ApiError.forbidden("Admin access required"));
-  }
-  next();
-};
-
-module.exports = {
-  authenticate,
-  adminOnly,
-};
+module.exports = { authenticate };

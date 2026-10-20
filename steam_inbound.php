@@ -183,64 +183,84 @@ if ($receivedDateTime !== '') {
     $dateTime = gmdate('Y-m-d H:i:s');
 }
 
-// ---- Save (dedup) ----
-$conn = get_mysql_connection();
-if (!$conn) {
-    error_log("DB_CONNECT_FAIL");
-    json_response(500, ['ok'=>false,'err'=>'DB_CONNECT_FAIL']);
-}
+// ---- Save using the existing schema and duplicate check ----
+// Serialize matching requests across PHP workers without adding a column/table.
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+$conn = null;
+$lockName = null;
+$locked = false;
+$status = 500;
+$response = ['ok' => false, 'err' => 'SAVE_FAIL'];
 
 try {
-    // Strong dedup if graphMessageId exists (best)
-    // If you don't have a column for it, skip it.
-    // We'll keep your recent dedup as well.
-
-    // recent dedup: 60 sec same user+code
-    $stmt = $conn->prepare(
-        "SELECT 1 FROM IncomingCodes
-         WHERE LOWER(TRIM(UserName))=LOWER(TRIM(?)) AND Code=?
-         AND DateTime >= DATE_SUB(?, INTERVAL 60 SECOND)
-         LIMIT 1"
-    );
-    $stmt->bind_param("sss", $username, $code, $dateTime);
-    $stmt->execute();
-    $r = $stmt->get_result();
-    $stmt->close();
-
-    if ($r && $r->num_rows > 0) {
-        $conn->close();
-        log_request([
-            'ok'=>true,
-            'saved'=>false,
-            'reason'=>'DUPLICATE_RECENT',
-            'user'=>$username,
-            'code'=>$code,
-            'graphMessageId'=>$graphMessageId
-        ]);
-        json_response(200, ['ok'=>true,'saved'=>false,'reason'=>'DUPLICATE_RECENT']);
+    $conn = get_mysql_connection();
+    if (!$conn) {
+        throw new RuntimeException('DB_CONNECT_FAIL');
     }
 
-    $stmt = $conn->prepare(
-        "INSERT INTO IncomingCodes (DateTime, FromEmail, ToEmail, UserName, Code)
-         VALUES (?, ?, ?, ?, ?)"
-    );
-    $steamFrom = 'noreply@steampowered.com';
-    $stmt->bind_param("sssss", $dateTime, $steamFrom, $to, $username, $code);
-    $stmt->execute();
-    $stmt->close();
-    $conn->close();
+    $database = $conn->query('SELECT DATABASE()')->fetch_row()[0];
+    $lockName = hash('sha256', $database . "\0" . strtolower(trim($username)) . "\0" . $code);
+    $lock = $conn->prepare('SELECT GET_LOCK(?, 2)');
+    $lock->bind_param('s', $lockName);
+    $lock->execute();
+    $lockResult = $lock->get_result()->fetch_row()[0];
+    $lock->close();
+    $locked = (string) $lockResult === '1';
 
-    log_request([
-        'ok'=>true,
-        'saved'=>true,
-        'user'=>$username,
-        'code'=>$code,
-        'graphMessageId'=>$graphMessageId
-    ]);
-    json_response(200, ['ok'=>true,'saved'=>true,'user'=>$username,'code'=>$code]);
+    if (!$locked) {
+        $status = 503;
+        $response = ['ok' => false, 'err' => 'SAVE_LOCK_TIMEOUT'];
+        log_request($response + ['graphMessageId' => $graphMessageId]);
+    } else {
+        $stmt = $conn->prepare(
+            "SELECT 1 FROM IncomingCodes
+             WHERE LOWER(TRIM(UserName))=LOWER(TRIM(?)) AND Code=?
+             AND DateTime >= DATE_SUB(?, INTERVAL 60 SECOND)
+             LIMIT 1"
+        );
+        $stmt->bind_param("sss", $username, $code, $dateTime);
+        $stmt->execute();
+        $duplicate = $stmt->get_result()->num_rows > 0;
+        $stmt->close();
 
+        if ($duplicate) {
+            $status = 200;
+            $response = ['ok' => true, 'saved' => false, 'reason' => 'DUPLICATE_RECENT'];
+            log_request($response + ['user' => $username, 'code' => $code, 'graphMessageId' => $graphMessageId]);
+        } else {
+            $stmt = $conn->prepare(
+                "INSERT INTO IncomingCodes (DateTime, FromEmail, ToEmail, UserName, Code)
+                 VALUES (?, ?, ?, ?, ?)"
+            );
+            $steamFrom = 'noreply@steampowered.com';
+            $stmt->bind_param("sssss", $dateTime, $steamFrom, $to, $username, $code);
+            $stmt->execute();
+            $stmt->close();
+            $status = 200;
+            $response = ['ok' => true, 'saved' => true, 'user' => $username, 'code' => $code];
+            log_request($response + ['graphMessageId' => $graphMessageId]);
+        }
+    }
 } catch (Throwable $e) {
-    error_log("SAVE_FAIL: ".$e->getMessage());
-    $conn->close();
-    json_response(500, ['ok'=>false,'err'=>'SAVE_FAIL']);
+    error_log("SAVE_FAIL: " . $e->getMessage());
+    $response = ['ok' => false, 'err' => $conn ? 'SAVE_FAIL' : 'DB_CONNECT_FAIL'];
+    $status = 500;
+} finally {
+    // json_response exits, so release resources before calling it.
+    if ($conn instanceof mysqli) {
+        if ($locked) {
+            try {
+                $release = $conn->prepare('SELECT RELEASE_LOCK(?)');
+                $release->bind_param('s', $lockName);
+                $release->execute();
+                $release->close();
+            } catch (Throwable $releaseError) {
+                error_log("RELEASE_LOCK_FAIL: " . $releaseError->getMessage());
+            }
+        }
+        $conn->close();
+    }
 }
+
+if ($status === 503) header('Retry-After: 2');
+json_response($status, $response);

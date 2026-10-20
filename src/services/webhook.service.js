@@ -1,7 +1,8 @@
+const subscriptionRepo = require("../repositories/subscription.repo");
+const accountRepo = require("../repositories/account.repo");
 const axios = require("axios");
 const crypto = require("crypto");
 const config = require("../config");
-const prisma = require("../config/database");
 const microsoftAuthService = require("./microsoftAuth.service");
 
 class WebhookService {
@@ -47,6 +48,7 @@ class WebhookService {
       `${this.graphBaseUrl}/subscriptions`,
       subscriptionPayload,
       {
+        timeout: 15_000,
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -56,7 +58,7 @@ class WebhookService {
 
     const subscription = response.data;
 
-    await prisma.webhookSubscription.upsert({
+    await subscriptionRepo.upsert({
       where: { accountId },
       create: {
         accountId,
@@ -87,7 +89,7 @@ class WebhookService {
    */
   async _deleteOldSubscriptionFromMicrosoft(accountId, accessToken) {
     try {
-      const existing = await prisma.webhookSubscription.findUnique({
+      const existing = await subscriptionRepo.findUnique({
         where: { accountId },
         select: { subscriptionId: true },
       });
@@ -101,6 +103,7 @@ class WebhookService {
       await axios.delete(
         `${this.graphBaseUrl}/subscriptions/${existing.subscriptionId}`,
         {
+          timeout: 15_000,
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -119,7 +122,7 @@ class WebhookService {
   }
 
   async renewSubscription(accountId) {
-    const existingSubscription = await prisma.webhookSubscription.findUnique({
+    const existingSubscription = await subscriptionRepo.findUnique({
       where: { accountId },
     });
 
@@ -136,6 +139,7 @@ class WebhookService {
         `${this.graphBaseUrl}/subscriptions/${existingSubscription.subscriptionId}`,
         { expirationDateTime },
         {
+          timeout: 15_000,
           headers: {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
@@ -145,7 +149,7 @@ class WebhookService {
 
       const subscription = response.data;
 
-      await prisma.webhookSubscription.update({
+      await subscriptionRepo.update({
         where: { accountId },
         data: { expiresAt: new Date(subscription.expirationDateTime) },
       });
@@ -162,7 +166,7 @@ class WebhookService {
         console.log(
           `[Webhook] Subscription invalid for ${accountId}, recreating...`,
         );
-        await prisma.webhookSubscription.deleteMany({ where: { accountId } });
+        await subscriptionRepo.deleteMany({ where: { accountId } });
         return this.createSubscription(accountId);
       }
       throw error;
@@ -170,12 +174,12 @@ class WebhookService {
   }
 
   async getAccountsNeedingSubscription() {
-    const existing = await prisma.webhookSubscription.findMany({
+    const existing = await subscriptionRepo.findMany({
       select: { accountId: true },
     });
     const existingIds = existing.map((s) => s.accountId);
 
-    return prisma.mailAccount.findMany({
+    return accountRepo.findMany({
       where: {
         status: "CONNECTED",
         isEnabled: true,
@@ -186,17 +190,25 @@ class WebhookService {
   }
 
   async getExpiringSubscriptions() {
+    const accounts = await accountRepo.findMany({
+      where: { status: "CONNECTED", isEnabled: true },
+      select: { id: true },
+    });
+    if (!accounts.length) return [];
     const twelveHoursFromNow = new Date();
     twelveHoursFromNow.setHours(twelveHoursFromNow.getHours() + 12);
 
-    return prisma.webhookSubscription.findMany({
-      where: { expiresAt: { lte: twelveHoursFromNow } },
+    return subscriptionRepo.findMany({
+      where: {
+        accountId: { in: accounts.map((account) => account.id) },
+        expiresAt: { lte: twelveHoursFromNow },
+      },
       select: { accountId: true, subscriptionId: true, expiresAt: true },
     });
   }
 
   async validateNotification(clientState, subscriptionId) {
-    const subscription = await prisma.webhookSubscription.findUnique({
+    const subscription = await subscriptionRepo.findUnique({
       where: { subscriptionId },
     });
 
@@ -220,7 +232,7 @@ class WebhookService {
   }
 
   async getSubscriptionStatus(accountId) {
-    return prisma.webhookSubscription.findUnique({
+    return subscriptionRepo.findUnique({
       where: { accountId },
       select: {
         subscriptionId: true,

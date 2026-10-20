@@ -1,0 +1,123 @@
+require("dotenv").config();
+
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const morgan = require("morgan");
+const rateLimit = require("express-rate-limit");
+const path = require("path");
+
+const config = require("./config");
+const logger = require("./config/logger");
+const {
+  errorHandler,
+  notFoundHandler,
+} = require("./middleware/error.middleware");
+
+// Import routes
+const authRoutes = require("./routes/auth.routes");
+const accountsRoutes = require("./routes/accounts.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
+const logsRoutes = require("./routes/logs.routes");
+const webhooksRoutes = require("./routes/webhooks.routes");
+
+class Application {
+  create() {
+    const app = express();
+
+    // Security middleware
+    app.use(
+      helmet({
+        crossOriginResourcePolicy: { policy: "cross-origin" },
+      }),
+    );
+
+    // CORS
+    app.use(
+      cors({
+        origin: config.frontendUrl,
+        credentials: true,
+      }),
+    );
+
+    // Body parsing
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+
+    // Webhook route (BEFORE rate limiter - Microsoft needs direct access)
+    app.use("/api/webhooks", webhooksRoutes);
+
+    // Rate limiting (skip webhooks)
+    const limiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100, // limit each IP to 100 requests per windowMs
+      skip: (req) => req.path.startsWith("/api/webhooks"),
+      message: {
+        success: false,
+        error: "Too many requests, please try again later.",
+      },
+    });
+    app.use("/api", limiter);
+
+    // Logging
+    if (config.nodeEnv === "development") {
+      app.use(morgan("dev"));
+    } else {
+      app.use(
+        morgan("combined", {
+          stream: { write: (message) => logger.info(message.trim()) },
+        }),
+      );
+    }
+
+    // Health check endpoint (public)
+    app.get("/health", (req, res) => {
+      res.json({ status: "ok", timestamp: new Date().toISOString() });
+    });
+
+    // API routes
+    app.use("/api/auth", authRoutes);
+    app.use("/api/accounts", accountsRoutes);
+    app.use("/api/dashboard", dashboardRoutes);
+    app.use("/api/logs", logsRoutes);
+
+    // Serve static files from public folder
+    app.use(express.static(path.join(__dirname, "../public")));
+
+    // Route specific pages
+    app.get("/", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/index.html"));
+    });
+
+    app.get("/dashboard", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/dashboard.html"));
+    });
+
+    app.get("/accounts", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/accounts.html"));
+    });
+
+    app.get("/logs", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/logs.html"));
+    });
+
+    app.get("/settings", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/settings.html"));
+    });
+
+    app.get("/oauth-callback", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/oauth-callback.html"));
+    });
+
+    app.get("/oauth/callback", (req, res) => {
+      res.sendFile(path.join(__dirname, "../public/oauth-callback.html"));
+    });
+
+    // Error handling
+    app.use(notFoundHandler);
+    app.use(errorHandler);
+
+    return app;
+  }
+}
+module.exports = new Application().create();

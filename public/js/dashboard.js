@@ -12,8 +12,6 @@ document.addEventListener("DOMContentLoaded", function () {
     logout();
   });
 
-  // document.getElementById("sync-all-btn").addEventListener("click", syncAll);
-
   // Load dashboard data
   loadDashboard();
   loadRecentLogs();
@@ -86,30 +84,6 @@ async function loadRecentLogs() {
     }
   } catch (error) {
     console.error("Failed to load recent logs:", error);
-  }
-}
-
-async function syncAll() {
-  var loadingModal = Modal.loading(
-    "Syncing all accounts...<br><small>This may take a few minutes</small>",
-  );
-
-  // document.getElementById("sync-all-btn").disabled = true;
-
-  try {
-    var response = await Api.post("/accounts/sync-all");
-    Modal.close(loadingModal);
-
-    if (response.success) {
-      Modal.syncResults("Sync Complete", response.data);
-      loadDashboard();
-      loadRecentLogs();
-    }
-  } catch (error) {
-    Modal.close(loadingModal);
-    Modal.error("Sync Failed", "Failed to sync accounts: " + error.message);
-  } finally {
-    // document.getElementById("sync-all-btn").disabled = false;
   }
 }
 

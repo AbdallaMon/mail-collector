@@ -1,5 +1,12 @@
 require("dotenv").config();
 
+const parseCsv = (value) =>
+  (value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => item.toLowerCase());
+
 module.exports = {
   // Server
   nodeEnv: process.env.NODE_ENV || "development",
@@ -44,14 +51,25 @@ module.exports = {
     toEmail: process.env.FORWARD_TO_EMAIL || "fwd@dmstoresa2.pro",
   },
 
+  // Steam API delivery
+  steam: {
+    apiUrl: process.env.STEAM_API_URL,
+    apiSecret: process.env.STEAM_API_SECRET || "",
+    timeoutMs: parseInt(process.env.STEAM_API_TIMEOUT_MS || "5000", 10),
+    only: (process.env.STEAM_ONLY || "true").toLowerCase() === "true",
+    allowedDomains: parseCsv(process.env.STEAM_ALLOWED_DOMAINS),
+    allowedSenders: parseCsv(process.env.STEAM_ALLOWED_SENDERS),
+    forwardDelayMs: parseInt(process.env.FORWARD_DELAY_MS, 10) || 500,
+  },
+
   // SMTP
   smtp: {
     host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT, 10) || 587,
+    port: parseInt(process.env.SMTP_PORT, 10) || 465,
     secure: process.env.SMTP_SECURE === "true",
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
-    from: process.env.SMTP_FROM || "Mail Collector <noreply@example.com>",
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
   },
 
   // Redis
@@ -64,9 +82,7 @@ module.exports = {
   // Worker
   worker: {
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS, 10) || 10000,
-    concurrency: parseInt(process.env.WORKER_CONCURRENCY, 10) || 5,
     maxRetries: parseInt(process.env.MAX_RETRIES, 10) || 1,
-    retryDelayMs: parseInt(process.env.RETRY_DELAY_MS, 10) || 5000,
   },
 
   // Admin
