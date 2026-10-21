@@ -137,7 +137,7 @@ test("inactive accounts and invalid webhook client state never fetch or enqueue 
   assert.equal(queued, false);
 });
 
-test("Steam accepts new-access subjects or a Guard phrase in the body without widening the sender filter", async () => {
+test("Steam accepts English/Arabic access subjects or a Guard body phrase without widening the sender filter", async () => {
   const requests = [];
   const h = createHarness({
     fetch: async (_url, options) => {
@@ -157,6 +157,9 @@ test("Steam accepts new-access subjects or a Guard phrase in the body without wi
     "Your Steam account: Access from new computer",
     "Your Steam account: Access from new web or mobile device",
     "Steam ACCESS FROM NEW device type",
+    "حسابك على Steam: الوصول من جهاز كمبيوتر جديد",
+    "حسابك على Steam: الوصول من جهاز كمبيوتر او موبايل جديد",
+    "حسابك على Steam: الوصول  من جهاز كمبيوتر أو موبايل جديد",
   ]) {
     const result = await forwarder.forwardGraphMessage(
       {
@@ -213,6 +216,11 @@ test("Steam accepts new-access subjects or a Guard phrase in the body without wi
       "Dear demo, Here is the Steam Guard code A1B2C",
     ],
     ["noreply@steampowered.com", "Steam from new computer", body],
+    [
+      "noreply@steampowered.com",
+      "حسابك على Steam: تغيير البريد الإلكتروني",
+      body,
+    ],
   ]) {
     const result = await forwarder.forwardGraphMessage(
       {
@@ -227,7 +235,7 @@ test("Steam accepts new-access subjects or a Guard phrase in the body without wi
     );
     assert.equal(result.delivered, false);
   }
-  assert.equal(requests.length, 5);
+  assert.equal(requests.length, 8);
   const missingCode = h
     .load("src/services/steamApi.service.js")
     .extractSteamCodeAndUsername({
@@ -237,6 +245,15 @@ test("Steam accepts new-access subjects or a Guard phrase in the body without wi
     });
   assert.equal(missingCode.hasSteamGuardCodeText, true);
   assert.equal(missingCode.code, null);
+  const arabicWithoutCode = h
+    .load("src/services/steamApi.service.js")
+    .extractSteamCodeAndUsername({
+      subject: "حسابك على Steam: الوصول من جهاز كمبيوتر جديد",
+      bodyType: "html",
+      body: "<p>demo, يبدو أنك تسجل الدخول من جهاز جديد.</p>",
+    });
+  assert.equal(arabicWithoutCode.username, "demo");
+  assert.equal(arabicWithoutCode.code, null);
 });
 
 test("OAuth refresh persists replacement tokens using the existing encryption format", async () => {

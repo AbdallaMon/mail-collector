@@ -159,7 +159,8 @@ if (strpos($from, 'steampowered.com') === false && strpos($subject, 'steam') ===
     log_request(['ok'=>true,'ignored'=>true,'reason'=>'NOT_STEAM','graphMessageId'=>$graphMessageId]);
     json_response(200, ['ok'=>true,'ignored'=>true,'reason'=>'NOT_STEAM']);
 }
-if (strpos($subject, 'access from new') === false && !$hasSteamGuardCodeText) {
+$hasArabicAccessSubject = preg_match('/الوصول\s+من\s+جهاز\s+كمبيوتر(?:\s+(?:او|أو)\s+موبايل)?\s+جديد/u', $subject) === 1;
+if (strpos($subject, 'access from new') === false && !$hasArabicAccessSubject && !$hasSteamGuardCodeText) {
     log_request(['ok'=>true,'ignored'=>true,'reason'=>'SUBJECT_NOT_MATCH','graphMessageId'=>$graphMessageId]);
     json_response(200, ['ok'=>true,'ignored'=>true,'reason'=>'SUBJECT_NOT_MATCH']);
 }

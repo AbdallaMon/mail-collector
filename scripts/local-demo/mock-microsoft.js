@@ -70,7 +70,11 @@ class MockMicrosoft {
   async inject({ kind = "steam", username, code, variant = "computer" }) {
     if (!["steam", "security"].includes(kind))
       throw new Error("kind must be steam or security");
-    if (!["computer", "web", "guard-body"].includes(variant))
+    if (
+      !["computer", "web", "guard-body", "ar-computer", "ar-mobile"].includes(
+        variant,
+      )
+    )
       throw new Error("Unknown local Steam message variant");
     if (
       kind === "steam" &&
@@ -105,6 +109,9 @@ class MockMicrosoft {
               computer: "Steam access from new computer",
               web: "Your Steam account: Access from new web or mobile device",
               "guard-body": "Your Steam Guard code",
+              "ar-computer": "حسابك على Steam: الوصول من جهاز كمبيوتر جديد",
+              "ar-mobile":
+                "حسابك على Steam: الوصول من جهاز كمبيوتر او موبايل جديد",
             }[variant]
           : "Synthetic Microsoft security notice",
       body: {
@@ -113,7 +120,9 @@ class MockMicrosoft {
           kind === "steam"
             ? variant === "guard-body"
               ? `<p>Dear ${username},</p><p>Here is the <b>Steam Guard</b>&nbsp;code you need: ${code}</p>`
-              : `<p>${username}, It looks like you are signing in from a new device.</p><p>${code}</p>`
+              : variant.startsWith("ar-")
+                ? `<p>${username}, يبدو أنك تسجل الدخول من جهاز جديد.</p><p>${code}</p>`
+                : `<p>${username}, It looks like you are signing in from a new device.</p><p>${code}</p>`
             : "<p>This is a local simulated security notice, not a real account alert.</p>",
       },
     };

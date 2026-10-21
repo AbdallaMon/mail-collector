@@ -192,7 +192,7 @@ class RepairVerification {
   }
 
   async verifySteamFilters() {
-    for (const variant of ["web", "guard-body"]) {
+    for (const variant of ["web", "guard-body", "ar-computer", "ar-mobile"]) {
       const injected = await this.scenario.sendSteam({ variant });
       await waitFor(async () => {
         const record = await this.database.mailMessageLog.findUnique({
@@ -234,6 +234,40 @@ class RepairVerification {
     }
     logEvent("STEAM_FILTER_FLAG_VALIDATED", {
       rejectsMissingFalseAndString: true,
+    });
+
+    const username = `missing_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+    for (const missingField of ["code", "username"]) {
+      const body = JSON.stringify({
+        from: "noreply@steampowered.com",
+        subject: "حسابك على Steam: الوصول من جهاز كمبيوتر أو موبايل جديد",
+        username,
+        code: "A1B2C",
+        [missingField]: "",
+      });
+      const ts = Math.floor(Date.now() / 1000).toString();
+      const signature = createHmac("sha256", this.env.STEAM_API_SECRET)
+        .update(`${ts}.${body}`)
+        .digest("hex");
+      const response = await request(this.env.STEAM_API_URL, {
+        method: "POST",
+        body,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Timestamp": ts,
+          "X-Signature": signature,
+        },
+      });
+      assert.equal(response.ignored, true);
+      assert.equal(response.reason, "MISSING_USERNAME_OR_CODE");
+    }
+    const { rows } = await request(
+      `${settings.receiverUrl}/__demo/codes?username=${username}`,
+    );
+    assert.equal(rows.length, 0);
+    logEvent("STEAM_REQUIRED_FIELDS_VERIFIED", {
+      ignoresMissingCodeAndUsername: true,
+      receiverRows: 0,
     });
   }
 

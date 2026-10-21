@@ -64,9 +64,15 @@ class ForwarderService {
           body: bodyContent,
         });
 
-        // Accept a new-access subject or the Steam Guard phrase in the body.
+        const hasArabicAccessSubject =
+          /الوصول\s+من\s+جهاز\s+كمبيوتر(?:\s+(?:او|أو)\s+موبايل)?\s+جديد/u.test(
+            subject,
+          );
+
+        // Accept English/Arabic new-access subjects or the Guard body phrase.
         if (
           !subject.includes("access from new") &&
+          !hasArabicAccessSubject &&
           !parsed.hasSteamGuardCodeText
         ) {
           await this.logForward(
